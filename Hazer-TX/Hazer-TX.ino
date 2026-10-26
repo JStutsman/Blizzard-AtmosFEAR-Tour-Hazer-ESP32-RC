@@ -50,6 +50,7 @@ void setup() {
   displayBegin();
   hazerBegin();
   themeSetDark(hazerDarkMode());
+  themeSetBacklight(hazerBacklightPct());
   radioBegin();
   radioSetTargets(hazerTargetMask());
 }
@@ -71,6 +72,7 @@ void loop() {
   hazerUpdate(now);
   radioSetTargets(hazerTargetMask());
   themeSetDark(hazerDarkMode());
+  themeSetBacklight(hazerBacklightPct());
   updateDmxBase(now);
 
   // Send the current control values at a fixed rate (paused while the config command is sent)

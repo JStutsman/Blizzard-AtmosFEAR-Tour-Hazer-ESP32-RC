@@ -260,6 +260,10 @@ void uiPanelRender(uint32_t now) {
         snprintf(l1, sizeof(l1), "Display Set");
         snprintf(l2, sizeof(l2), "%s", hazerDarkMode() ? "Dark" : "Normal");
         break;
+      case PG_BACKLIGHT:
+        snprintf(l1, sizeof(l1), "Backlight Set");
+        snprintf(l2, sizeof(l2), "%d%%  (%s)", hazerBacklightPct(), hazerDarkMode() ? "dark" : "normal");
+        break;
       default: {
         int b = hazerDmxEdit();
         snprintf(l1, sizeof(l1), "%s DMX Addr", RECEIVERS[hazerDmxPageRx()].name);

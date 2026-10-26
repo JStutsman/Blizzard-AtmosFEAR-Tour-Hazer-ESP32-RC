@@ -1,4 +1,4 @@
-// Theme.h  (Hazer-TX) - screen colors and backlight for normal and dark mode
+// Theme.h  (Hazer-TX) - screen colors for normal and dark mode, and the backlight
 #pragma once
 #include <Arduino.h>
 
@@ -8,9 +8,9 @@ struct Theme {
   uint16_t btn, btnLocked, btnPressed, btnActive;     // panel / keypad buttons
   uint16_t btnConfirm, btnTake;                       // CONFIRM and take-control buttons
   uint16_t barOn, barOff, alert;                      // signal bars, red dot / X
-  uint8_t  brightness;                                // backlight 0-255
 };
 
 const Theme& theme();
 bool themeDark();
-void themeSetDark(bool dark);   // switches palette and backlight (no-op if unchanged)
+void themeSetDark(bool dark);           // switches palette
+void themeSetBacklight(uint8_t pct);    // 0-100 % (no-op if unchanged)

@@ -1,5 +1,5 @@
 // Theme.cpp  (Hazer-TX)
-// Dark mode is for dark venues: dim text, muted buttons and a low backlight.
+// Dark mode is for dark venues: dim text and muted buttons (pair it with a low backlight).
 #include "Display.h"
 #include "Theme.h"
 
@@ -13,7 +13,6 @@ static const Theme NORMAL = {
   rgb(60, 60, 70),    rgb(40, 40, 45),    rgb(80, 200, 80),   rgb(230, 140, 20),
   rgb(30, 140, 60),   rgb(200, 110, 20),
   rgb(120, 255, 140), rgb(15, 60, 130),   rgb(255, 0, 0),
-  255,
 };
 
 static const Theme DARK = {
@@ -22,7 +21,6 @@ static const Theme DARK = {
   rgb(28, 28, 34),    rgb(18, 18, 22),    rgb(40, 110, 40),   rgb(140, 80, 10),
   rgb(20, 90, 40),    rgb(130, 70, 10),
   rgb(70, 170, 90),   rgb(15, 35, 70),    rgb(200, 30, 30),
-  70,
 };
 
 static bool dark = false;
@@ -30,8 +28,11 @@ static bool dark = false;
 const Theme& theme() { return dark ? DARK : NORMAL; }
 bool themeDark()     { return dark; }
 
-void themeSetDark(bool d) {
-  if (d == dark) return;
-  dark = d;
-  lcd.setBrightness(theme().brightness);
+void themeSetDark(bool d) { dark = d; }
+
+void themeSetBacklight(uint8_t pct) {
+  static int shown = -1;
+  if (pct == shown) return;
+  shown = pct;
+  lcd.setBrightness((uint16_t)pct * 255 / 100);
 }

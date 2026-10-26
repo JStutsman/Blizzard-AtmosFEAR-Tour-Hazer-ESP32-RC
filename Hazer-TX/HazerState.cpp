@@ -16,6 +16,7 @@ static int      interval = 30, duration = 5;     // seconds, 0-200
 static int      volPct = 50, fanPct = 50;        // 1-100
 static int      target = 1;                      // receiver mask 1-3 (RX1, RX2, both)
 static bool     darkMode = false;
+static int      backlight[2] = {100, 30};        // % for normal / dark mode
 static int      dmxWant[DMX_PAGE_COUNT];         // per receiver 1-510, 0 = not set from here
 static int      dmxEdit = -1;                    // value on the open DMX page, -1 = not known yet
 static bool     dmxEdited = false;
@@ -31,6 +32,8 @@ static void saveSettings() {
   prefs.putInt("fan", fanPct);
   prefs.putInt("target", target);
   prefs.putBool("dark", darkMode);
+  prefs.putInt("bl", backlight[0]);
+  prefs.putInt("bldark", backlight[1]);
   for (int i = 0; i < DMX_PAGE_COUNT; i++) prefs.putInt(i ? "base1" : "base0", dmxWant[i]);
   dirty = false;
 }
@@ -43,6 +46,8 @@ void hazerBegin() {
   fanPct   = prefs.getInt("fan", 50);
   target   = prefs.getInt("target", 1);
   darkMode = prefs.getBool("dark", false);
+  backlight[0] = constrain(prefs.getInt("bl", 100), 5, 100);
+  backlight[1] = constrain(prefs.getInt("bldark", 30), 5, 100);
   interval = constrain(interval, 0, 200);
   duration = constrain(duration, 0, 200);
   volPct   = constrain(volPct, 1, 100);
@@ -62,6 +67,7 @@ void hazerAdjust(int d) {
     case PG_FAN:      fanPct   = constrain(fanPct + d, 1, 100);   break;
     case PG_RECEIVER: target   = (target - 1 + (d > 0 ? 1 : 2)) % 3 + 1; break;   // wraps
     case PG_DISPLAY:  darkMode = !darkMode; break;
+    case PG_BACKLIGHT: backlight[darkMode] = constrain(backlight[darkMode] + d * 5, 5, 100); break;
     case PG_DMX1:
     case PG_DMX2:
       if (dmxEdit < 0) return;
@@ -139,6 +145,7 @@ bool    hazerManualHeld()    { return manualHeld; }
 int     hazerTimerPhase()    { return timerPhase; }
 uint8_t hazerTargetMask()    { return (uint8_t)target; }
 bool    hazerDarkMode()      { return darkMode; }
+int     hazerBacklightPct()  { return backlight[darkMode]; }
 void hazerAddTargets(uint8_t mask) {
   int t = constrain(target | mask, 1, 3);
   if (t == target) return;
