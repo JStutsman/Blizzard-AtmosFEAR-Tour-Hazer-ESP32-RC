@@ -18,6 +18,7 @@
 #include "FixtureTable.h"
 #include "Theme.h"
 #include "UiSettings.h"
+#include "UiNumpad.h"
 
 static uint8_t pctTo255(uint8_t pct) { return (uint8_t)(((uint16_t)pct * 255) / 100); }
 
@@ -56,7 +57,9 @@ void loop() {
   int32_t tx, ty;
   bool touched = lcd.getTouch(&tx, &ty);
 
-  if (uiConfigActive()) {
+  if (uiNumpadActive()) {                 // opened from the panel or Settings, drawn on top
+    uiNumpadUpdate(touched, tx, ty, now);
+  } else if (uiConfigActive()) {
     uiConfigUpdate(touched, tx, ty, now);
   } else if (uiSettingsActive()) {
     uiSettingsUpdate(touched, tx, ty, now);
@@ -84,7 +87,8 @@ void loop() {
     radioSendData(v, HZ_HAZER_VALUES);
   }
 
-  if (uiConfigActive())        uiConfigRender(now);
+  if (uiNumpadActive())        uiNumpadRender(now);
+  else if (uiConfigActive())   uiConfigRender(now);
   else if (uiSettingsActive()) uiSettingsRender(now);
   else                         uiPanelRender(now);
 

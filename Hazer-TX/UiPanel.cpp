@@ -1,5 +1,6 @@
 // UiPanel.cpp  (Hazer-TX)
-// Draws the panel mimic: a blue "LCD" with two text lines plus a small info line
+// Draws the panel mimic: a blue "LCD" with two text lines (tap the value on a FUNCTION
+// page to type it on the number pad) plus a small info line
 // (signal strength and a signal icon per selected receiver), a gear icon that opens the
 // Settings screen, and six touch buttons laid out
 // like the machine (FUNCTION UP DOWN / TIMER START-STOP MANUAL).
@@ -12,6 +13,7 @@
 #include "FixtureTable.h"
 #include "UiPanel.h"
 #include "Theme.h"
+#include "UiNumpad.h"
 
 // ---------------- layout ----------------
 static const int BX[3] = {8, 112, 216};
@@ -35,6 +37,22 @@ static int  pressedBtn = -1;
 void uiPanelInvalidate() {
   needFull = true;
   ignoreTouch = true;
+}
+
+// ---------------- number pad for the value on a FUNCTION page ----------------
+static void numpadDone(bool ok, int v) {
+  if (ok) hazerSetPageValue(hazerPage(), v);
+  uiPanelInvalidate();
+}
+
+static void openNumpad() {
+  switch (hazerPage()) {
+    case PG_INTERVAL: uiNumpadStart("Interval (s)", hazerInterval(), 0, 200, numpadDone); break;
+    case PG_DURATION: uiNumpadStart("Duration (s)", hazerDuration(), 0, 200, numpadDone); break;
+    case PG_VOLUME:   uiNumpadStart("Volume %", hazerVolPct(), 1, 100, numpadDone);       break;
+    case PG_FAN:      uiNumpadStart("FanSpeed %", hazerFanPct(), 1, 100, numpadDone);     break;
+    default: break;
+  }
 }
 
 // ---------------- touch ----------------
@@ -71,6 +89,7 @@ UiResult uiPanelUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
     lcdHoldStart = 0;
     if (lcdTap && lcdTouchX < 52 && lcdTouchY < 52) return UI_REQUEST_SETTINGS;
     if (lcdTap && lcdTouchY >= 66)                  return UI_REQUEST_TAKEOVER;
+    if (lcdTap && lcdTouchY >= 40 && hazerPage() != PG_MAIN) { openNumpad(); return UI_NONE; }   // value line
   }
 
   if (hit != heldBtn) {

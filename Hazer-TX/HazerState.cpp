@@ -69,6 +69,17 @@ void hazerAdjust(int d) {
   dirty = true;
 }
 
+void hazerSetPageValue(int pg, int v) {
+  switch (pg) {
+    case PG_INTERVAL: interval = constrain(v, 0, 200); break;
+    case PG_DURATION: duration = constrain(v, 0, 200); break;
+    case PG_VOLUME:   volPct   = constrain(v, 1, 100); break;
+    case PG_FAN:      fanPct   = constrain(v, 1, 100); break;
+    default: return;
+  }
+  saveSettings();
+}
+
 void hazerButtonDown(int b) {
   switch (b) {
     case 0:  // FUNCTION

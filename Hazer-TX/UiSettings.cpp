@@ -3,6 +3,7 @@
 // One row per setting with its value and two step buttons; DONE (or inactivity) closes.
 // Receivers, display and backlight apply as you tap; DMX addresses are sent on close,
 // so holding +/- doesn't make the receiver rewrite its flash on every step.
+// Tapping a numeric value opens the number pad.
 #include <Arduino.h>
 #include "Config.h"
 #include "HazerProtocol.h"
@@ -13,6 +14,7 @@
 #include "Theme.h"
 #include "UiPanel.h"
 #include "UiSettings.h"
+#include "UiNumpad.h"
 
 enum { ROW_TARGET, ROW_DMX1, ROW_DMX2, ROW_DISPLAY, ROW_BACKLIGHT, ROW_COUNT };
 static const char* ROW_LABEL[ROW_COUNT]  = {"Receivers", "RX1 DMX", "RX2 DMX", "Display", "Backlight"};
@@ -22,6 +24,14 @@ static const bool  ROW_CHOICE[ROW_COUNT] = {true, false, false, true, false};   
 static const int ROW_Y0 = 34, ROW_H = 34, BTN_W = 44, BTN_H = 30;
 static const int BTN_X[2] = {214, 266};          // step down, step up
 static const int DONE_Y = 206, DONE_H = 30;
+
+static const int VALUE_X0 = 80, VALUE_X1 = 210;  // tap area of the value (number pad)
+
+static int rowAt(int y) {
+  for (int r = 0; r < ROW_COUNT; r++)
+    if (y >= ROW_Y0 + r * ROW_H && y < ROW_Y0 + r * ROW_H + BTN_H) return r;
+  return -1;
+}
 
 static bool rowBtnAt(int x, int y, int* row, int* dir) {
   for (int r = 0; r < ROW_COUNT; r++) {
@@ -77,6 +87,36 @@ static void step(int row, int dir, uint32_t now) {
   }
 }
 
+// ---------------- number pad ----------------
+static int numpadRow = -1;
+
+static void numpadDone(bool ok, int v) {
+  if (ok && numpadRow == ROW_BACKLIGHT) hazerSetBacklightPct(v);
+  if (ok && (numpadRow == ROW_DMX1 || numpadRow == ROW_DMX2)) {
+    dmxEdit[numpadRow - ROW_DMX1]   = v;           // sent on DONE, like +/-
+    dmxEdited[numpadRow - ROW_DMX1] = true;
+  }
+  full    = true;                                 // back to this screen
+  wasDown = true;
+  lastAct = millis();
+}
+
+static bool openNumpad(int row) {
+  numpadRow = row;
+  switch (row) {
+    case ROW_DMX1:
+    case ROW_DMX2: {
+      int i = row - ROW_DMX1;
+      char t[24];
+      snprintf(t, sizeof(t), "%s DMX address", RECEIVERS[i].name);
+      uiNumpadStart(t, dmxEdit[i], 1, 510, numpadDone);
+      return true;
+    }
+    case ROW_BACKLIGHT: uiNumpadStart("Backlight %", hazerBacklightPct(), 5, 100, numpadDone); return true;
+    default: return false;                       // choices have no number pad
+  }
+}
+
 // ---------------- touch ----------------
 void uiSettingsUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
   // DMX rows start with the address set here, else the one the receiver reports
@@ -99,6 +139,7 @@ void uiSettingsUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
   }
   if (tap) {
     if (ty >= DONE_Y) { close(); return; }
+    if (tx >= VALUE_X0 && tx < VALUE_X1 && rowAt(ty) >= 0 && openNumpad(rowAt(ty))) return;
     int row, dir;
     if (rowBtnAt(tx, ty, &row, &dir)) {
       heldRow = row; heldDir = dir;

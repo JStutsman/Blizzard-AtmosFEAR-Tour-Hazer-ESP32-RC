@@ -11,6 +11,7 @@ void     hazerBegin();                    // load saved settings
 void     hazerButtonDown(int b);          // 0 FUNCTION, 1 UP, 2 DOWN, 3 TIMER, 4 START/STOP, 5 MANUAL
 void     hazerButtonUp(int b);
 void     hazerAdjust(int delta);          // UP / DOWN on the current page
+void     hazerSetPageValue(int page, int v);   // typed on the number pad (clamped, saved)
 void     hazerUpdate(uint32_t now);       // run the timer
 void     hazerStopAll();                  // stop haze, cancel timer
 
