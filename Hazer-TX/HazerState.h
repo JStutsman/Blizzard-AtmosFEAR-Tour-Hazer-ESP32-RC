@@ -26,6 +26,7 @@ bool     hazerManualHeld();
 int      hazerTimerPhase();               // 0 = waiting, 1 = hazing
 long     hazerTimerRemaining(uint32_t now); // seconds left in current phase
 uint8_t  hazerTargetMask();               // receivers to control: 1 = RX1, 2 = RX2, 3 = both
+void     hazerAddTargets(uint8_t mask);   // also control these receivers (saved)
 
 // DMX address pages, one per receiver (only selected receivers' pages are shown).
 // The address set here is saved on the remote and pushed to the receiver whenever

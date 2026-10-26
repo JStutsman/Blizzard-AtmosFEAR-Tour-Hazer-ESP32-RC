@@ -1,8 +1,8 @@
 // UiConfig.cpp  (Hazer-TX)
 // Flow: hidden long-press -> 4-digit PIN (lockout after 3 wrong tries) -> confirm
 // -> stop haze and send ENTER_CONFIG until the receiver reports config mode.
-// Tapping the info line while another remote controls a selected receiver opens a
-// "take control" confirm, then sends TAKE_CONTROL until the receiver accepts.
+// Tapping the info line opens a "take control" screen: pick RX 1, RX 2 or both, then
+// TAKE_CONTROL is sent until they accept; taken receivers are also selected here.
 // HZ_DEBUG_PIN on the same keypad opens a live debug/info screen instead
 // (RSSI shown as "here/at RX": reply strength at the remote / our packets at the receiver).
 #include <Arduino.h>
@@ -68,13 +68,12 @@ void uiConfigStart() {
   dirty = true;
 }
 
+// take-control choice buttons: RX 1, RX 2, BOTH (masks 1, 2, 3)
+static const int TAKE_BX[3] = {10, 112, 214};
+static const int TAKE_BY = 110, TAKE_BW = 96, TAKE_BH = 50;
+
 void uiTakeoverStart() {
   takeMask = 0;
-  for (int i = 0; i < RECEIVER_COUNT; i++) {
-    RadioStatus rs = radioGetStatus(i);
-    if ((radioTargets() & (1 << i)) && rs.linkUp && (rs.flags & HZ_FLAG_BUSY)) takeMask |= (1 << i);
-  }
-  if (!takeMask) return;
   st = UC_TAKE_CONFIRM;
   lastAct = millis();
   wasTouched = true;
@@ -186,10 +185,14 @@ void uiConfigUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
       break;
     case UC_TAKE_CONFIRM:
       if (now - lastAct > PIN_IDLE_TIMEOUT_MS) { finish(); return; }
-      if (tap && ty >= 170 && ty < 226) {
-        if (tx >= 10 && tx < 150) {                       // CANCEL
-          finish();
-        } else if (tx >= 170 && tx < 310) {               // TAKE
+      if (!tap) break;
+      if (ty >= 176 && ty < 226) { finish(); return; }    // CANCEL
+      if (ty >= TAKE_BY && ty < TAKE_BY + TAKE_BH) {
+        for (int b = 0; b < 3; b++) {
+          if (tx < TAKE_BX[b] || tx >= TAKE_BX[b] + TAKE_BW) continue;
+          takeMask = b + 1;                               // RX 1, RX 2, both
+          hazerAddTargets(takeMask);                      // keep sending to it, or control lapses
+          radioSetTargets(hazerTargetMask());
           st = UC_TAKING;
           stateStart = now;
           lastSend = 0;
@@ -328,19 +331,26 @@ void uiConfigRender(uint32_t now) {
       break;
     }
     case UC_TAKE_CONFIRM: {
-      char names[24], title[40];
-      takeNames(names, sizeof(names));
-      snprintf(title, sizeof(title), "Take control of %s?", names);
-      drawTitle(title);
+      drawTitle("Take control");
       lcd.setFont(&fonts::Font2);
       lcd.setTextDatum(textdatum_t::middle_center);
-      lcd.setTextColor(TFT_WHITE, TFT_BLACK);
-      lcd.drawString("Another remote is controlling it.", 160, 70);
-      lcd.drawString("That remote will show \"In use\" and", 160, 92);
-      lcd.drawString("this remote's haze settings take", 160, 114);
-      lcd.drawString("effect immediately.", 160, 136);
-      drawBtn(10, 170, 140, 56, "CANCEL", lcd.color565(60, 60, 70));
-      drawBtn(170, 170, 140, 56, "TAKE", lcd.color565(200, 110, 20));
+      for (int i = 0; i < RECEIVER_COUNT && i < 2; i++) {
+        RadioStatus rs = radioGetStatus(i);
+        bool mine = rs.linkUp && !(rs.flags & HZ_FLAG_BUSY) && (radioTargets() & (1 << i));
+        const char* state = !rs.linkUp ? "no link"
+                          : (rs.flags & HZ_FLAG_BUSY) ? "in use by another remote"
+                          : mine ? "controlled by this remote" : "free";
+        char line[48];
+        snprintf(line, sizeof(line), "%s: %s", RECEIVERS[i].name, state);
+        lcd.setTextColor((rs.flags & HZ_FLAG_BUSY) && rs.linkUp ? lcd.color565(255, 190, 80) : TFT_WHITE, TFT_BLACK);
+        lcd.drawString(line, 160, 44 + i * 20);
+      }
+      lcd.setTextColor(lcd.color565(150, 150, 160), TFT_BLACK);
+      lcd.drawString("This remote's haze settings apply at once.", 160, 94);
+      static const char* TAKE_LABELS[3] = {"RX 1", "RX 2", "BOTH"};
+      for (int b = 0; b < 3; b++)
+        drawBtn(TAKE_BX[b], TAKE_BY, TAKE_BW, TAKE_BH, TAKE_LABELS[b], lcd.color565(200, 110, 20));
+      drawBtn(10, 176, 300, 50, "CANCEL", lcd.color565(60, 60, 70));
       break;
     }
     case UC_TAKING:
@@ -350,14 +360,18 @@ void uiConfigRender(uint32_t now) {
       lcd.setTextColor(TFT_WHITE, TFT_BLACK);
       lcd.drawString("Waiting for the receiver...", 160, 120);
       break;
-    case UC_TAKE_RESULT:
+    case UC_TAKE_RESULT: {
+      char names[24];
+      takeNames(names, sizeof(names));
       drawTitle(resultOk ? "Control taken" : "No response");
       lcd.setFont(&fonts::Font2);
       lcd.setTextDatum(textdatum_t::middle_center);
       lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+      lcd.drawString(names, 160, 80);
       if (!resultOk) lcd.drawString("The receiver did not accept. Try again.", 160, 110);
       lcd.drawString("Tap to close", 160, 210);
       break;
+    }
     case UC_DEBUG:
       drawTitle("Debug Info");
       renderDebug(now);

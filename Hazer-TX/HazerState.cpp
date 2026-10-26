@@ -134,6 +134,12 @@ bool    hazerOnActive()      { return mode == HM_ON; }
 bool    hazerManualHeld()    { return manualHeld; }
 int     hazerTimerPhase()    { return timerPhase; }
 uint8_t hazerTargetMask()    { return (uint8_t)target; }
+void hazerAddTargets(uint8_t mask) {
+  int t = constrain(target | mask, 1, 3);
+  if (t == target) return;
+  target = t;
+  saveSettings();
+}
 int     hazerDmxPageRx()     { return (page >= PG_DMX1 && page < PG_DMX1 + DMX_PAGE_COUNT) ? page - PG_DMX1 : -1; }
 int     hazerDmxEdit()       { return dmxEdit; }
 void    hazerLoadDmxBase(int base) { if (dmxEdit < 0 && base >= 1 && base <= 510) dmxEdit = base; }

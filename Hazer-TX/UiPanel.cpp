@@ -64,15 +64,10 @@ UiResult uiPanelUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
       return UI_REQUEST_CONFIG;
     }
   } else {
-    // a short tap on the info line offers to take over receivers another remote controls
+    // a short tap on the info line opens the "take control" screen
     bool infoTap = !touched && lcdHoldStart && now - lcdHoldStart < 600 && lcdTouchY >= 66;
     lcdHoldStart = 0;
-    if (infoTap) {
-      for (int i = 0; i < RECEIVER_COUNT; i++) {
-        RadioStatus rs = radioGetStatus(i);
-        if ((radioTargets() & (1 << i)) && rs.linkUp && (rs.flags & HZ_FLAG_BUSY)) return UI_REQUEST_TAKEOVER;
-      }
-    }
+    if (infoTap) return UI_REQUEST_TAKEOVER;
   }
 
   if (hit != heldBtn) {
