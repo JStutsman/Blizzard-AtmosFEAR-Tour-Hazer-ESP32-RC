@@ -101,6 +101,57 @@ static void drawBars(int level) {
   }
 }
 
+// small 4-bar signal icon (15 px wide) with its bottom at y; level < 0 = no link (red X)
+static void drawMiniBars(int x, int y, int level, uint16_t bg) {
+  for (int i = 0; i < 4; i++) {
+    int h = 3 + i * 2;
+    uint16_t col = (i < level) ? lcd.color565(120, 255, 140) : lcd.color565(15, 60, 130);
+    lcd.fillRect(x + i * 4, y - h, 3, h, col);
+  }
+  if (level < 0) {
+    for (int o = 0; o < 2; o++) {
+      lcd.drawLine(x + o, y - 9, x + 14 + o, y, TFT_RED);
+      lcd.drawLine(x + o, y, x + 14 + o, y - 9, TFT_RED);
+    }
+  }
+}
+
+// Segmented info line, one entry per receiver: "RX1 -57dBm#3|RX2 No link#X".
+// The character after '#' is the signal level 0-4, or X for no link.
+#define INFO_SEGMENTED '\x1F'          // first char of info marks the segmented format
+
+static void drawInfoSegments(const char* info, uint16_t bg) {
+  const uint16_t okCol = lcd.color565(190, 215, 255), warnCol = lcd.color565(255, 190, 80);
+  const char* SEP = "  |  ";
+  char text[4][24]; int level[4]; int n = 0;
+  for (const char* p = info + 1; *p && n < 4; ) {
+    const char* hash = strchr(p, '#');
+    if (!hash || !hash[1]) break;
+    int len = min((int)(hash - p), 23);
+    memcpy(text[n], p, len); text[n][len] = 0;
+    level[n] = hash[1] == 'X' ? -1 : hash[1] - '0';
+    n++;
+    p = hash + 2;
+    if (*p == '|') p++;
+  }
+  int total = 0;
+  for (int i = 0; i < n; i++) total += lcd.textWidth(text[i]) + 4 + 15;
+  if (n > 1) total += (n - 1) * lcd.textWidth(SEP);
+
+  lcd.setTextDatum(textdatum_t::middle_left);
+  int x = 160 - total / 2;
+  for (int i = 0; i < n; i++) {
+    if (i > 0) { lcd.setTextColor(okCol, bg); lcd.drawString(SEP, x, 83); x += lcd.textWidth(SEP); }
+    bool warn = level[i] < 0 || strstr(text[i], " FS");
+    lcd.setTextColor(warn ? warnCol : okCol, bg);
+    lcd.drawString(text[i], x, 83);
+    x += lcd.textWidth(text[i]) + 4;
+    drawMiniBars(x, 88, level[i], bg);
+    x += 15;
+  }
+  lcd.setTextDatum(textdatum_t::middle_center);
+}
+
 static void drawLcd(const char* l1, const char* l2, const char* info, bool infoRed, bool out, int bars) {
   uint16_t blue = lcd.color565(20, 90, 200);
   lcd.fillRoundRect(8, 8, 304, 88, 8, blue);
@@ -111,8 +162,12 @@ static void drawLcd(const char* l1, const char* l2, const char* info, bool infoR
   lcd.drawString(l1, 150, 26);
   lcd.drawString(l2, 160, 56);
   lcd.setFont(&fonts::Font2);
-  lcd.setTextColor(infoRed ? lcd.color565(255, 190, 80) : lcd.color565(190, 215, 255), blue);
-  lcd.drawString(info, 160, 83);
+  if (info[0] == INFO_SEGMENTED) {
+    drawInfoSegments(info, blue);
+  } else {
+    lcd.setTextColor(infoRed ? lcd.color565(255, 190, 80) : lcd.color565(190, 215, 255), blue);
+    lcd.drawString(info, 160, 83);
+  }
   drawBars(bars);
   if (out) lcd.fillCircle(296, 22, 7, TFT_RED);
 }
@@ -142,7 +197,7 @@ void uiPanelRender(uint32_t now) {
   // combine the status of the selected receivers
   uint8_t     mask = radioTargets();
   RadioStatus rs[RECEIVER_COUNT];
-  int  nSel = 0, firstSel = -1, nLinked = 0, missing = -1;
+  int  nSel = 0, firstSel = -1, nLinked = 0;
   bool anyConfig = false, anyFailsafe = false;
   for (int i = 0; i < RECEIVER_COUNT; i++) {
     rs[i] = radioGetStatus(i);
@@ -153,8 +208,6 @@ void uiPanelRender(uint32_t now) {
       nLinked++;
       if (rs[i].flags & HZ_FLAG_CONFIG)   anyConfig = true;
       if (rs[i].flags & HZ_FLAG_FAILSAFE) anyFailsafe = true;
-    } else {
-      missing = i;
     }
   }
   bool linkUp = nSel > 0 && nLinked == nSel;
@@ -232,16 +285,15 @@ void uiPanelRender(uint32_t now) {
       snprintf(info, sizeof(info), "%s v%u.%u %ddBm  Echo E%d F%d V%d",
                name, r.fwMajor, r.fwMinor, shownRssi[firstSel], echoE, echoF, echoV);
     }
-  } else {                                 // several receivers: one short entry each
-    size_t n = 0;
-    bool partial = nLinked > 0 && !linkUp;
-    if (partial) n += snprintf(info, sizeof(info), "No Link - searching %s  ", RECEIVERS[missing].name);
+  } else {                                 // several receivers: "RX1 -57dBm [bars] | RX2 No link [X]"
+    size_t n = snprintf(info, sizeof(info), "%c", INFO_SEGMENTED);
     for (int i = 0; i < RECEIVER_COUNT && n < sizeof(info); i++) {
       if (!(mask & (1 << i))) continue;
       const char* name = RECEIVERS[i].name;
-      if (!rs[i].linkUp) { if (!partial)       n += snprintf(info + n, sizeof(info) - n, "%s no link  ", name); }
-      else if (rs[i].flags & HZ_FLAG_FAILSAFE) n += snprintf(info + n, sizeof(info) - n, "%s FS %ddBm  ", name, shownRssi[i]);
-      else                                     n += snprintf(info + n, sizeof(info) - n, "%s %ddBm  ", name, shownRssi[i]);
+      const char* sep  = n > 1 ? "|" : "";
+      if (!rs[i].linkUp)                       n += snprintf(info + n, sizeof(info) - n, "%s%s No link#X", sep, name);
+      else if (rs[i].flags & HZ_FLAG_FAILSAFE) n += snprintf(info + n, sizeof(info) - n, "%s%s FS %ddBm#%d", sep, name, shownRssi[i], rssiToBars(shownRssi[i]));
+      else                                     n += snprintf(info + n, sizeof(info) - n, "%s%s %ddBm#%d", sep, name, shownRssi[i], rssiToBars(shownRssi[i]));
     }
     infoRed = !linkUp || anyFailsafe;
   }
