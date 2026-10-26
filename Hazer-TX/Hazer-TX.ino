@@ -15,8 +15,41 @@
 #include "HazerState.h"
 #include "UiPanel.h"
 #include "UiConfig.h"
+#include "FixtureTable.h"
 
 static uint8_t pctTo255(uint8_t pct) { return (uint8_t)(((uint16_t)pct * 255) / 100); }
+
+// DMX address page: load the receiver's address, and after an edit send SET_BASE
+// until every selected receiver that is linked reports the new address (max 3 s).
+static void updateDmxBase(uint32_t now) {
+  static int      pendingBase = 0;
+  static uint32_t pendingUntil = 0, lastSend = 0;
+
+  if (hazerPage() == PG_DMX && hazerDmxBase() < 0) {
+    for (int i = 0; i < RECEIVER_COUNT; i++) {
+      if (!(radioTargets() & (1 << i))) continue;
+      RadioStatus rs = radioGetStatus(i);
+      if (rs.linkUp) { hazerLoadDmxBase(rs.base); break; }
+    }
+  }
+
+  int b;
+  if (hazerTakeDmxCommit(&b)) { pendingBase = b; pendingUntil = now + 3000; lastSend = 0; }
+  if (!pendingBase) return;
+
+  bool done = true;
+  for (int i = 0; i < RECEIVER_COUNT; i++) {
+    if (!(radioTargets() & (1 << i))) continue;
+    RadioStatus rs = radioGetStatus(i);
+    if (rs.linkUp && rs.base != pendingBase) done = false;
+  }
+  if (done || (int32_t)(now - pendingUntil) >= 0) {
+    Serial.printf("[TX] DMX base %d %s\n", pendingBase, done ? "confirmed" : "not confirmed (timeout)");
+    pendingBase = 0;
+    return;
+  }
+  if (now - lastSend >= 100) { lastSend = now; radioSendCommand(HZ_CMD_SET_BASE, pendingBase); }
+}
 
 void setup() {
   Serial.begin(115200);
@@ -41,6 +74,7 @@ void loop() {
 
   hazerUpdate(now);
   radioSetTargets(hazerTargetMask());
+  updateDmxBase(now);
 
   // Send the current control values at a fixed rate (paused while the config command is sent)
   static uint32_t nextSend = 0;

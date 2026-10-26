@@ -15,6 +15,8 @@ static int      page = PG_MAIN;
 static int      interval = 30, duration = 5;     // seconds, 0-200
 static int      volPct = 50, fanPct = 50;        // 1-100
 static int      target = 1;                      // receiver mask 1-3 (RX1, RX2, both)
+static int      dmxBase = -1;                    // 1-510, -1 = not loaded yet (not saved here)
+static bool     dmxEdited = false, dmxCommit = false;
 static bool     manualHeld = false;
 static bool     dirty = false;
 static int      timerPhase = 0;                  // 0 = interval wait, 1 = hazing
@@ -50,6 +52,11 @@ void hazerAdjust(int d) {
     case PG_VOLUME:   volPct   = constrain(volPct + d, 1, 100);   break;
     case PG_FAN:      fanPct   = constrain(fanPct + d, 1, 100);   break;
     case PG_RECEIVER: target   = (target - 1 + (d > 0 ? 1 : 2)) % 3 + 1; break;   // wraps
+    case PG_DMX:
+      if (dmxBase < 0) return;
+      dmxBase = constrain(dmxBase + d, 1, 510);   // hazer uses 3 channels: base..base+2
+      dmxEdited = true;
+      return;
     default: return;
   }
   dirty = true;
@@ -59,7 +66,9 @@ void hazerButtonDown(int b) {
   switch (b) {
     case 0:  // FUNCTION
       if (dirty) saveSettings();
+      if (page == PG_DMX && dmxEdited) { dmxEdited = false; dmxCommit = true; }
       page = (page + 1) % PG_COUNT;
+      if (page == PG_DMX) dmxBase = -1;           // reload from the receiver
       break;
     case 1: hazerAdjust(+1); break;
     case 2: hazerAdjust(-1); break;
@@ -109,6 +118,14 @@ bool    hazerOnActive()      { return mode == HM_ON; }
 bool    hazerManualHeld()    { return manualHeld; }
 int     hazerTimerPhase()    { return timerPhase; }
 uint8_t hazerTargetMask()    { return (uint8_t)target; }
+int     hazerDmxBase()       { return dmxBase; }
+void    hazerLoadDmxBase(int base) { if (dmxBase < 0 && base >= 1 && base <= 510) dmxBase = base; }
+bool hazerTakeDmxCommit(int* base) {
+  if (!dmxCommit) return false;
+  dmxCommit = false;
+  *base = dmxBase;
+  return true;
+}
 long hazerTimerRemaining(uint32_t now) {
   long rem = ((long)(phaseEnd - now) + 999) / 1000;
   return rem < 0 ? 0 : rem;

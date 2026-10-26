@@ -38,7 +38,7 @@ void uiPanelInvalidate() {
 // ---------------- touch ----------------
 UiResult uiPanelUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
   static int      heldBtn = -1;
-  static uint32_t lastTouchMs = 0, nextRepeat = 0, lcdHoldStart = 0;
+  static uint32_t lastTouchMs = 0, nextRepeat = 0, lcdHoldStart = 0, holdStart = 0;
 
   if (ignoreTouch) {                 // wait for finger release after returning from another screen
     if (!touched) ignoreTouch = false;
@@ -69,9 +69,10 @@ UiResult uiPanelUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
   if (hit != heldBtn) {
     if (heldBtn >= 0) hazerButtonUp(heldBtn);
     heldBtn = hit;
-    if (hit >= 0) { hazerButtonDown(hit); nextRepeat = now + 450; }
+    if (hit >= 0) { hazerButtonDown(hit); nextRepeat = now + 450; holdStart = now; }
   } else if ((hit == 1 || hit == 2) && hazerPage() != PG_RECEIVER && now >= nextRepeat) {
-    hazerAdjust(hit == 1 ? +1 : -1);
+    int step = (hazerPage() == PG_DMX && now - holdStart > 2000) ? 10 : 1;   // speed up long holds
+    hazerAdjust(hit == 1 ? +step : -step);
     nextRepeat = now + 100;
   }
   pressedBtn = heldBtn;
@@ -236,10 +237,17 @@ void uiPanelRender(uint32_t now) {
       case PG_DURATION: snprintf(l1, sizeof(l1), "Duration Set"); snprintf(l2, sizeof(l2), "%d s", hazerDuration()); break;
       case PG_VOLUME:   snprintf(l1, sizeof(l1), "Volume Set");   snprintf(l2, sizeof(l2), "%d%%", hazerVolPct()); break;
       case PG_FAN:      snprintf(l1, sizeof(l1), "FanSpeed Set"); snprintf(l2, sizeof(l2), "%d%%", hazerFanPct()); break;
-      default: {
+      case PG_RECEIVER: {
         static const char* TARGET_NAMES[] = {"", "RX 1", "RX 2", "RX 1 + 2"};
         snprintf(l1, sizeof(l1), "Receiver Set");
         snprintf(l2, sizeof(l2), "%s", TARGET_NAMES[hazerTargetMask() & 3]);
+        break;
+      }
+      default: {
+        int b = hazerDmxBase();
+        snprintf(l1, sizeof(l1), "DMX Addr Set");
+        if (b < 0) snprintf(l2, sizeof(l2), "Waiting for RX");
+        else       snprintf(l2, sizeof(l2), "%d  (ch %d-%d)", b, b, b + HZ_HAZER_VALUES - 1);
         break;
       }
     }
