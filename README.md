@@ -1,109 +1,85 @@
-# Hazer Remote
+# Hazer Remote (transmitter)
 
-Wireless remote for a Blizzard AtmosFEAR Tour HZ haze machine.
+Wireless touchscreen remote for the **Blizzard AtmosFEAR Tour HZ** haze machine. The screen copies the hazer's front panel, and the remote talks to a small receiver at the hazer over ESP-NOW. There's no router, app or pairing step.
 
-- **Hazer-TX** - ESP32-2432S028R ("CYD") touchscreen. The screen mimics the machine's front panel.
-- **Hazer-RX** - ESP32-C3 + RS485 module wired to the hazer's DMX input. Outputs continuous DMX512.
-- **Link** - ESP-NOW (no router, no pairing step), fixed WiFi channel 6.
+This repo is the **remote**. The receiver that plugs into the hazer's DMX input is in
+[Blizzard-AtmosFEAR-Tour-Hazer-ESP32-RC-Receiver](https://github.com/JStutsman/Blizzard-AtmosFEAR-Tour-Hazer-ESP32-RC-Receiver).
 
-## Repositories
+**📖 [User Guide (PDF)](docs/Hazer-Remote-User-Guide.pdf)** covers setup, every screen, DMX addressing, using several remotes and troubleshooting.
 
-The project is split into two repos:
+Firmware **v1.1**. Built and running on hardware: 2 remotes and 2 receivers.
 
-- Remote (Hazer-TX): https://github.com/JStutsman/Blizzard-AtmosFEAR-Tour-Hazer-ESP32-RC
-- Receiver (Hazer-RX): https://github.com/JStutsman/Blizzard-AtmosFEAR-Tour-Hazer-ESP32-RC-Receiver
+## Features
 
-Paths below assume both are cloned side by side:
+- **Front-panel mimic:** a blue display plus FUNCTION, UP, DOWN, TIMER, START/STOP and MANUAL, with the hazer's own Interval, Duration, Volume and FanSpeed pages. The interval/duration timer runs on the remote.
+- **One or two hazers:** control RX 1, RX 2 or both, each on its own DMX address, e.g. 89 and 109.
+- **Live link status:** a bottom line per receiver shows the DMX address, signal strength and a signal icon. A red X means no link.
+- **DMX addresses set from the remote:** the remote remembers each receiver's address and re-sends it when a receiver that was offline comes back.
+- **Several remotes:** each receiver follows one remote at a time. Other remotes show *In use* and can take over RX 1, RX 2 or both.
+- **Settings behind a gear icon:** receivers, DMX addresses, Normal/Dark display and backlight.
+- **Number pad** for typing any value.
+- **Fail-safe:** a receiver stops the hazer after 3 s without data.
+- **Debug screen** (PIN 1234): firmware versions and build date, MACs, signal at both ends, echoed DMX values and status flags.
+- **Receiver setup mode** (PIN 4817): sends the receivers into their WiFi setup page.
+
+## Hardware
+
+| Part | Notes |
+|---|---|
+| ESP32-2432S028R ("CYD") | 2.8" 320x240 ILI9341 touchscreen with XPT2046 touch |
+
+## Building and flashing
+
+Open the workspace in VS Code with PlatformIO. Clone both repos side by side:
 
 ```
 git clone https://github.com/JStutsman/Blizzard-AtmosFEAR-Tour-Hazer-ESP32-RC.git remote-controller
 git clone https://github.com/JStutsman/Blizzard-AtmosFEAR-Tour-Hazer-ESP32-RC-Receiver.git receiver
 ```
 
-Status: written but NOT compiled or tested on hardware. Expect to fix small things on first build.
-
-## Folders
+Then build and upload (env `cyd`; LovyanGFX is pulled in automatically):
 
 ```
-Hazer-TX/                     (open Hazer-TX.ino)
-  Hazer-TX.ino   main loop
-  Config.h       defines: RX MAC, PIN, radio channel, display options
-  FixtureTable.h device list (hazer only for now - groundwork for the hub idea)
-  Display.*      LovyanGFX display/touch setup
-  Radio.*        ESP-NOW send + status receive
-  HazerState.*   panel logic: menus, timer, saved settings
-  UiPanel.*      panel screen (blue LCD + 6 buttons)
-  UiConfig.*     PIN entry -> confirm -> send "enter config mode"
-  HazerProtocol.h
-
-Hazer-RX/                     (open Hazer-RX.ino)
-  Hazer-RX.ino   main loop
-  Config.h       defines: RS485 pins, LED pin, config timing, setup WiFi password
-  Settings.*     settings in flash (base address, fail-safe, channel, allowed TX MAC)
-  BootCounter.*  5-power-cycle config entry
-  DmxOut.*       continuous DMX512 output
-  Link.*         ESP-NOW receive, fail-safe, status replies
-  ConfigMode.*   setup WiFi + web page
-  StatusLed.*    LED blink patterns
-  HazerProtocol.h
+pio run -d remote-controller -t upload --upload-port COMxx
 ```
 
-`HazerProtocol.h` exists in both folders and must stay identical.
+`platformio.ini` points `src_dir` at `Hazer-TX/`, so the sketch also opens unchanged in the Arduino IDE. For the Arduino IDE, use board *ESP32 Dev Module*, ESP32 core 3.x, and install the LovyanGFX library.
 
-## Setup (VS Code + PlatformIO)
+### Configuration (`Hazer-TX/Config.h`)
 
-Open `Hazer-Remote.code-workspace`. It has two PlatformIO projects:
+| Setting | Default | Notes |
+|---|---|---|
+| `RX_MAC_RECEIVER_1` / `_2` | your receivers | Each receiver prints its MAC on the serial monitor at boot |
+| `RADIO_CHANNEL` | 6 | Must match the receivers |
+| `HZ_CONFIG_PIN` | 4817 | Sends receivers into setup mode |
+| `HZ_DEBUG_PIN` | 1234 | Opens the debug screen |
+| `DISPLAY_INVERT`, `DISPLAY_RGB_ORDER` | false | For panels with inverted or swapped colors |
+| `TOUCH_CAL_ON_BOOT` | false | Set true once to print touch calibration values |
 
-- `remote-controller/` - env `cyd` (ESP32 Dev Module, pulls LovyanGFX automatically)
-- `receiver/` - env `esp32c3` (ESP32-C3, serial over native USB)
+If the display stays blank, change `Panel_ILI9341` to `Panel_ST7789` in `Display.h`.
 
-Each `platformio.ini` points `src_dir` at the sketch folder, so the sketches
-remain unchanged and still open in the Arduino IDE. Build, upload, or monitor from
-the PlatformIO toolbar or sidebar, or run `pio run -d receiver -t upload`.
+## Code layout
 
-## Setup (Visual Micro / Arduino)
+```
+Hazer-TX/
+  Hazer-TX.ino     main loop: touch -> screens, 20 Hz data send, DMX address upkeep
+  Config.h         compile-time settings (receiver MACs, PINs, radio channel, display)
+  FixtureTable.h   receivers and fixtures this remote knows
+  HazerProtocol.h  wire protocol - must stay identical to the receiver's copy
+  Radio.*          ESP-NOW sends and per-receiver status
+  HazerState.*     panel logic (pages, timer, output) and saved settings
+  UiPanel.*        main panel screen: blue display, info line, gear, six buttons
+  UiSettings.*     gear screen
+  UiNumpad.*       number pad
+  UiConfig.*       PIN entry, receiver setup mode, take control, debug screen
+  Theme.*          Normal / Dark colors and backlight
+  Display.*        LovyanGFX setup for the CYD
+  BuildStamp.cpp   build date (touched before every build by touch_build_stamp.py)
+docs/
+  Hazer-Remote-User-Guide.pdf
+  make_user_guide.py   rebuilds the PDF (needs reportlab)
+```
 
-1. Board: **ESP32 Dev Module** for the CYD, **ESP32C3 Dev Module** for the receiver (turn on *USB CDC On Boot* for the C3 if you want the serial monitor over its USB port).
-2. Install the **LovyanGFX** library (TX only). Everything else ships with the ESP32 core.
-3. Open each `.ino`; the other files in the folder are picked up automatically.
+## Protocol summary
 
-## Fill in before use
-
-Hazer-RX/Config.h
-- `DMX_DI_PIN` (ESP TX -> RS485 DI), `DMX_EN_PIN` (DE+RE tied together, held HIGH), `DMX_RO_PIN` (unused, leave -1)
-- `STATUS_LED_PIN` / `STATUS_LED_ACTIVE_LOW` (defaults are for a C3 SuperMini: GPIO8, active low)
-- optional: `ALLOWED_TX_MAC` (can also be set on the config page)
-
-Hazer-TX/Config.h
-- `RX_MAC_BYTES` - the receiver's MAC (it prints on the receiver's serial monitor at boot and shows on its config page)
-- `HZ_CONFIG_PIN` is **4817**
-
-Set the hazer's own DMX address to **510** (DMX512 Add in its menu). The receiver defaults to base address 510 (emit 510, fan 511, volume 512).
-
-## Suggested test order
-
-1. **Receiver alone:** flash Hazer-RX, wire the RS485 module, power-cycle it 5 times quickly (each power-on shorter than 2 s). The LED flickers fast = config mode. Join the WiFi `Hazer-RX-Setup-<MAC>` (password `48174817`), open `http://192.168.4.1`, use the **Bench test** sliders to confirm the hazer responds. No remote needed.
-2. **Link:** put the receiver's MAC in the remote's Config.h, flash the remote. The blue LCD should change from "No Link" to "Ready Haze" and show `RX v1.0`, dBm and the echoed values.
-3. **Panel:** try START/STOP, MANUAL (hold), TIMER, and the FUNCTION menus (the hazer's own pages). The gear icon opens Settings: receivers, DMX addresses, display mode and backlight.
-4. **Config via remote:** hold the blue LCD area for 2 seconds -> PIN -> confirm.
-
-## How it behaves
-
-- Remote sends 3 values (emit, fan, volume) at 20 Hz. The receiver adds its base address (relative addressing).
-- Receiver zeroes all outputs if no data arrives for 3 s, and holds zero for the first 2 s after power-up and during config mode.
-- Receiver replies about 4x/s with: firmware version, its RSSI, the values it is outputting, and flags (fail-safe, config mode, identify).
-- Config mode ends by itself after 10 minutes without activity, or with the page's Exit button.
-- PIN: 4 digits, 3 wrong tries locks entry for 5 s. PIN 1234 opens a debug/info screen.
-- One remote controls a receiver at a time. Other remotes are ignored and show "In use" until the controlling remote is silent for 3 s or deselects it; tapping the info line on the remote offers to take control right away.
-- LED patterns (receiver): N blinks while counting power cycles; one short blink = linked; double blink = fail-safe/no data; fast flicker = config mode; slow blink = identify.
-
-## Packet commands (HazerProtocol.h)
-
-DATA, SAFE, ENTER_CONFIG, SET_BASE, IDENTIFY, TAKE_CONTROL, and STATUS (receiver -> remote). SET_BASE is sent from the remote's Settings screen (gear icon, top-left of the blue LCD; the receiver saves it to flash). The remote remembers the address set for each receiver and resends it whenever that receiver reports a different one, so a receiver that was offline catches up when it is back. IDENTIFY is handled by the receiver but the remote has no UI for it yet.
-
-## Known assumptions to check on first run
-
-- Core 3.x ESP-NOW callback signature (`esp_now_recv_info_t`) is used on both sides.
-- If the CYD display is blank, change `Panel_ILI9341` to `Panel_ST7789` in Display.h.
-- Receiver config mode switches WiFi to AP+STA while ESP-NOW keeps running; verify the remote still sees status replies in config mode.
-- The DMX break uses the UART driver's trailing break (24 bit-times = 96 us).
+The remote sends `HzPacket` messages: DATA (emit, fan, volume) at 20 Hz, plus SAFE, ENTER_CONFIG, SET_BASE, IDENTIFY and TAKE_CONTROL. Each receiver replies with `HzStatus` 4 times a second: firmware version, RSSI, the values it is outputting, its DMX base address, and flags (FAILSAFE, CONFIG, IDENTIFY, BUSY). A receiver follows one remote at a time. It answers other remotes with BUSY until the owner has been silent for 3 s, releases with SAFE, or another remote sends TAKE_CONTROL.
