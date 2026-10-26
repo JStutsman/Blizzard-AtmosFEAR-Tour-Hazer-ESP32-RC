@@ -238,6 +238,8 @@ static void debugLine(int row, uint16_t col, const char* fmt, ...) {
   lcd.drawString(buf, 6, 34 + row * 16);
 }
 
+extern const char* const BUILD_STAMP;     // BuildStamp.cpp: "Oct 26 2026 15:40:12"
+
 static void renderDebug(uint32_t now) {
   const uint16_t W = TFT_WHITE, G = lcd.color565(150, 150, 160);
   const uint16_t OK = lcd.color565(120, 255, 140), BAD = lcd.color565(255, 190, 80);
@@ -250,15 +252,16 @@ static void renderDebug(uint32_t now) {
   uint32_t up = now / 1000;
   uint8_t mask = radioTargets();
   const char* err = radioError();
-  debugLine(0, W, "TX v%d.%d  %02X:%02X:%02X:%02X:%02X:%02X  ch %d", FW_VERSION_MAJOR, FW_VERSION_MINOR,
-            own[0], own[1], own[2], own[3], own[4], own[5], RADIO_CHANNEL);
-  debugLine(1, G, "Up %lu:%02lu:%02lu  Heap %uk  Send %s%s%s", up / 3600, (up / 60) % 60, up % 60,
-            ESP.getFreeHeap() / 1024, (mask & 1) ? "RX1 " : "", (mask & 2) ? "RX2 " : "", err ? err : "");
-  debugLine(2, G, "Out  Emit %d  Fan %d%%  Vol %d%%  every %dms", hazerEmit() ? 1 : 0,
+  debugLine(0, W, "TX firmware v%d.%d  built %.17s", FW_VERSION_MAJOR, FW_VERSION_MINOR, BUILD_STAMP);
+  debugLine(1, G, "%02X:%02X:%02X:%02X:%02X:%02X  ch %d  Up %lu:%02lu:%02lu",
+            own[0], own[1], own[2], own[3], own[4], own[5], RADIO_CHANNEL, up / 3600, (up / 60) % 60, up % 60);
+  debugLine(2, G, "Heap %uk  Send %s%s%s", ESP.getFreeHeap() / 1024,
+            (mask & 1) ? "RX1 " : "", (mask & 2) ? "RX2 " : "", err ? err : "");
+  debugLine(3, G, "Out  Emit %d  Fan %d%%  Vol %d%%  every %dms", hazerEmit() ? 1 : 0,
             hazerFanPct(), hazerVolPct(), SEND_INTERVAL_MS);
 
   for (int i = 0; i < RECEIVER_COUNT && i < 3; i++) {
-    int row = 3 + i * 4;
+    int row = 4 + i * 4;
     const uint8_t* m = RECEIVERS[i].mac;
     RadioStatus r = radioGetStatus(i);
     bool sel = mask & (1 << i);
@@ -268,7 +271,7 @@ static void renderDebug(uint32_t now) {
       debugLine(row + 1, BAD, "  never heard from");
       debugLine(row + 2, G, "");
     } else {
-      debugLine(row + 1, r.linkUp ? OK : BAD, "  %s  v%u.%u  base %u  last %lums",
+      debugLine(row + 1, r.linkUp ? OK : BAD, "  %s  fw v%u.%u  base %u  last %lums",
                 r.linkUp ? "LINK UP" : "NO LINK", r.fwMajor, r.fwMinor, r.base, r.ageMs);
       debugLine(row + 2, G, "  RSSI %d/%d dBm  Echo E%d F%d V%d%s%s%s",
                 r.rssi, r.rxRssi, r.echo[HZV_EMIT] >= 128 ? 1 : 0,

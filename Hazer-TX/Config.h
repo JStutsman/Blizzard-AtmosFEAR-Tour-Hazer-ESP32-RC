@@ -3,7 +3,7 @@
 #pragma once
 
 #define FW_VERSION_MAJOR 1
-#define FW_VERSION_MINOR 0
+#define FW_VERSION_MINOR 1
 
 // ---------------- display / touch ----------------
 #define DISPLAY_INVERT     false   // set true if colors look inverted
