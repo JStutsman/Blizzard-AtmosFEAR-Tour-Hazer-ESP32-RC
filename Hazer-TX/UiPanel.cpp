@@ -1,6 +1,7 @@
 // UiPanel.cpp  (Hazer-TX)
 // Draws the panel mimic: a blue "LCD" with two text lines plus a small info line
-// (signal strength and a signal icon per selected receiver), and six touch buttons laid out
+// (signal strength and a signal icon per selected receiver), a gear icon that opens the
+// Settings screen, and six touch buttons laid out
 // like the machine (FUNCTION UP DOWN / TIMER START-STOP MANUAL).
 #include <Arduino.h>
 #include "Config.h"
@@ -39,8 +40,8 @@ void uiPanelInvalidate() {
 // ---------------- touch ----------------
 UiResult uiPanelUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
   static int      heldBtn = -1;
-  static uint32_t lastTouchMs = 0, nextRepeat = 0, lcdHoldStart = 0, holdStart = 0;
-  static int32_t  lcdTouchY = 0;
+  static uint32_t lastTouchMs = 0, nextRepeat = 0, lcdHoldStart = 0;
+  static int32_t  lcdTouchX = 0, lcdTouchY = 0;
 
   if (ignoreTouch) {                 // wait for finger release after returning from another screen
     if (!touched) ignoreTouch = false;
@@ -57,7 +58,7 @@ UiResult uiPanelUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
 
   // Hidden gesture: hold the blue LCD area to open PIN entry
   if (touched && ty < 100 && hit < 0) {
-    if (lcdHoldStart == 0) { lcdHoldStart = now; lcdTouchY = ty; }
+    if (lcdHoldStart == 0) { lcdHoldStart = now; lcdTouchX = tx; lcdTouchY = ty; }
     if (now - lcdHoldStart >= CONFIG_HOLD_MS) {
       lcdHoldStart = 0;
       if (heldBtn >= 0) { hazerButtonUp(heldBtn); heldBtn = -1; }
@@ -65,19 +66,19 @@ UiResult uiPanelUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
       return UI_REQUEST_CONFIG;
     }
   } else {
-    // a short tap on the info line opens the "take control" screen
-    bool infoTap = !touched && lcdHoldStart && now - lcdHoldStart < 600 && lcdTouchY >= 66;
+    // short taps: gear (top-left) opens Settings, info line opens "take control"
+    bool lcdTap = !touched && lcdHoldStart && now - lcdHoldStart < 600;
     lcdHoldStart = 0;
-    if (infoTap) return UI_REQUEST_TAKEOVER;
+    if (lcdTap && lcdTouchX < 52 && lcdTouchY < 52) return UI_REQUEST_SETTINGS;
+    if (lcdTap && lcdTouchY >= 66)                  return UI_REQUEST_TAKEOVER;
   }
 
   if (hit != heldBtn) {
     if (heldBtn >= 0) hazerButtonUp(heldBtn);
     heldBtn = hit;
-    if (hit >= 0) { hazerButtonDown(hit); nextRepeat = now + 450; holdStart = now; }
-  } else if ((hit == 1 || hit == 2) && hazerPage() != PG_RECEIVER && hazerPage() != PG_DISPLAY && now >= nextRepeat) {
-    int step = (hazerDmxPageRx() >= 0 && now - holdStart > 2000) ? 10 : 1;   // speed up long holds
-    hazerAdjust(hit == 1 ? +step : -step);
+    if (hit >= 0) { hazerButtonDown(hit); nextRepeat = now + 450; }
+  } else if ((hit == 1 || hit == 2) && now >= nextRepeat) {
+    hazerAdjust(hit == 1 ? +1 : -1);
     nextRepeat = now + 100;
   }
   pressedBtn = heldBtn;
@@ -149,10 +150,21 @@ static void drawInfoSegments(const char* info, uint16_t bg) {
   lcd.setTextDatum(textdatum_t::middle_center);
 }
 
+// gear icon (about 24 px across) centred on x, y
+static void drawGear(int x, int y, uint16_t col, uint16_t bg) {
+  for (int i = 0; i < 8; i++) {                  // teeth
+    float a = i * PI / 4;
+    lcd.fillCircle(x + (int)roundf(9 * cosf(a)), y + (int)roundf(9 * sinf(a)), 3, col);
+  }
+  lcd.fillCircle(x, y, 8, col);
+  lcd.fillCircle(x, y, 3, bg);                   // hole
+}
+
 static void drawLcd(const char* l1, const char* l2, const char* info, bool out) {
   uint16_t blue = theme().lcdBg;
   lcd.fillRoundRect(8, 8, 304, 88, 8, blue);
   lcd.drawRoundRect(8, 8, 304, 88, 8, theme().border);
+  drawGear(28, 28, theme().lcdText, blue);
   lcd.setFont(&fonts::Font4);
   lcd.setTextDatum(textdatum_t::middle_center);
   lcd.setTextColor(theme().lcdText, blue);
@@ -249,28 +261,7 @@ void uiPanelRender(uint32_t now) {
       case PG_INTERVAL: snprintf(l1, sizeof(l1), "Interval Set"); snprintf(l2, sizeof(l2), "%d s", hazerInterval()); break;
       case PG_DURATION: snprintf(l1, sizeof(l1), "Duration Set"); snprintf(l2, sizeof(l2), "%d s", hazerDuration()); break;
       case PG_VOLUME:   snprintf(l1, sizeof(l1), "Volume Set");   snprintf(l2, sizeof(l2), "%d%%", hazerVolPct()); break;
-      case PG_FAN:      snprintf(l1, sizeof(l1), "FanSpeed Set"); snprintf(l2, sizeof(l2), "%d%%", hazerFanPct()); break;
-      case PG_RECEIVER: {
-        static const char* TARGET_NAMES[] = {"", "RX 1", "RX 2", "RX 1 + 2"};
-        snprintf(l1, sizeof(l1), "Receiver Set");
-        snprintf(l2, sizeof(l2), "%s", TARGET_NAMES[hazerTargetMask() & 3]);
-        break;
-      }
-      case PG_DISPLAY:
-        snprintf(l1, sizeof(l1), "Display Set");
-        snprintf(l2, sizeof(l2), "%s", hazerDarkMode() ? "Dark" : "Normal");
-        break;
-      case PG_BACKLIGHT:
-        snprintf(l1, sizeof(l1), "Backlight Set");
-        snprintf(l2, sizeof(l2), "%d%%  (%s)", hazerBacklightPct(), hazerDarkMode() ? "dark" : "normal");
-        break;
-      default: {
-        int b = hazerDmxEdit();
-        snprintf(l1, sizeof(l1), "%s DMX Addr", RECEIVERS[hazerDmxPageRx()].name);
-        if (b < 0) snprintf(l2, sizeof(l2), "Waiting for RX");
-        else       snprintf(l2, sizeof(l2), "%d  (ch %d-%d)", b, b, b + HZ_HAZER_VALUES - 1);
-        break;
-      }
+      default:          snprintf(l1, sizeof(l1), "FanSpeed Set"); snprintf(l2, sizeof(l2), "%d%%", hazerFanPct()); break;
     }
   }
 

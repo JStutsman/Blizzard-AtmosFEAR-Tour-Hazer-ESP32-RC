@@ -2,7 +2,8 @@
 // Mimics the AtmosFEAR Tour HZ front panel: FUNCTION cycles menu pages, UP/DOWN change
 // values, TIMER runs interval/duration cycles, START/STOP latches haze, MANUAL = hold.
 // The timer runs here (on the remote) because the hazer locks its own buttons while
-// it receives DMX.
+// it receives DMX. The remote's own settings (receivers, DMX addresses, display) live
+// here too but are edited on the Settings screen, not on FUNCTION pages.
 #include <Arduino.h>
 #include <Preferences.h>
 #include "HazerState.h"
@@ -17,9 +18,7 @@ static int      volPct = 50, fanPct = 50;        // 1-100
 static int      target = 1;                      // receiver mask 1-3 (RX1, RX2, both)
 static bool     darkMode = false;
 static int      backlight[2] = {100, 30};        // % for normal / dark mode
-static int      dmxWant[DMX_PAGE_COUNT];         // per receiver 1-510, 0 = not set from here
-static int      dmxEdit = -1;                    // value on the open DMX page, -1 = not known yet
-static bool     dmxEdited = false;
+static int      dmxWant[DMX_RX_COUNT];           // per receiver 1-510, 0 = not set from here
 static bool     manualHeld = false;
 static bool     dirty = false;
 static int      timerPhase = 0;                  // 0 = interval wait, 1 = hazing
@@ -34,7 +33,7 @@ static void saveSettings() {
   prefs.putBool("dark", darkMode);
   prefs.putInt("bl", backlight[0]);
   prefs.putInt("bldark", backlight[1]);
-  for (int i = 0; i < DMX_PAGE_COUNT; i++) prefs.putInt(i ? "base1" : "base0", dmxWant[i]);
+  for (int i = 0; i < DMX_RX_COUNT; i++) prefs.putInt(i ? "base1" : "base0", dmxWant[i]);
   dirty = false;
 }
 
@@ -53,7 +52,7 @@ void hazerBegin() {
   volPct   = constrain(volPct, 1, 100);
   fanPct   = constrain(fanPct, 1, 100);
   target   = constrain(target, 1, 3);
-  for (int i = 0; i < DMX_PAGE_COUNT; i++) {
+  for (int i = 0; i < DMX_RX_COUNT; i++) {
     dmxWant[i] = prefs.getInt(i ? "base1" : "base0", 0);
     if (dmxWant[i] < 1 || dmxWant[i] > 510) dmxWant[i] = 0;
   }
@@ -65,15 +64,6 @@ void hazerAdjust(int d) {
     case PG_DURATION: duration = constrain(duration + d, 0, 200); break;
     case PG_VOLUME:   volPct   = constrain(volPct + d, 1, 100);   break;
     case PG_FAN:      fanPct   = constrain(fanPct + d, 1, 100);   break;
-    case PG_RECEIVER: target   = (target - 1 + (d > 0 ? 1 : 2)) % 3 + 1; break;   // wraps
-    case PG_DISPLAY:  darkMode = !darkMode; break;
-    case PG_BACKLIGHT: backlight[darkMode] = constrain(backlight[darkMode] + d * 5, 5, 100); break;
-    case PG_DMX1:
-    case PG_DMX2:
-      if (dmxEdit < 0) return;
-      dmxEdit = constrain(dmxEdit + d, 1, 510);   // hazer uses 3 channels: base..base+2
-      dmxEdited = true;
-      return;
     default: return;
   }
   dirty = true;
@@ -83,18 +73,7 @@ void hazerButtonDown(int b) {
   switch (b) {
     case 0:  // FUNCTION
       if (dirty) saveSettings();
-      if (hazerDmxPageRx() >= 0 && dmxEdited) {
-        dmxWant[hazerDmxPageRx()] = dmxEdit;
-        dmxEdited = false;
-        saveSettings();
-      }
-      do {                                        // skip pages of receivers that are not selected
-        page = (page + 1) % PG_COUNT;
-      } while (hazerDmxPageRx() >= 0 && !(target & (1 << hazerDmxPageRx())));
-      if (hazerDmxPageRx() >= 0) {
-        int want = dmxWant[hazerDmxPageRx()];
-        dmxEdit = want ? want : -1;               // -1: load from the receiver
-      }
+      page = (page + 1) % PG_COUNT;
       break;
     case 1: hazerAdjust(+1); break;
     case 2: hazerAdjust(-1); break;
@@ -152,10 +131,14 @@ void hazerAddTargets(uint8_t mask) {
   target = t;
   saveSettings();
 }
-int     hazerDmxPageRx()     { return (page >= PG_DMX1 && page < PG_DMX1 + DMX_PAGE_COUNT) ? page - PG_DMX1 : -1; }
-int     hazerDmxEdit()       { return dmxEdit; }
-void    hazerLoadDmxBase(int base) { if (dmxEdit < 0 && base >= 1 && base <= 510) dmxEdit = base; }
-int     hazerDmxWanted(int rx) { return (rx >= 0 && rx < DMX_PAGE_COUNT) ? dmxWant[rx] : 0; }
+void    hazerSetTargetMask(uint8_t mask) { target = constrain((int)mask, 1, 3); }
+void    hazerSetDarkMode(bool dark)      { darkMode = dark; }
+void    hazerSetBacklightPct(int pct)    { backlight[darkMode] = constrain(pct, 5, 100); }
+int     hazerDmxWanted(int rx) { return (rx >= 0 && rx < DMX_RX_COUNT) ? dmxWant[rx] : 0; }
+void    hazerSetDmxWanted(int rx, int base) {
+  if (rx >= 0 && rx < DMX_RX_COUNT && base >= 1 && base <= 510) dmxWant[rx] = base;
+}
+void    hazerSaveSettings()  { saveSettings(); }
 long hazerTimerRemaining(uint32_t now) {
   long rem = ((long)(phaseEnd - now) + 999) / 1000;
   return rem < 0 ? 0 : rem;

@@ -17,24 +17,19 @@
 #include "UiConfig.h"
 #include "FixtureTable.h"
 #include "Theme.h"
+#include "UiSettings.h"
 
 static uint8_t pctTo255(uint8_t pct) { return (uint8_t)(((uint16_t)pct * 255) / 100); }
 
-// DMX address pages: show the receiver's current address until one is set here, and
-// keep every receiver that is answering on the address set for it. A receiver that
-// missed the change (off or out of range) gets it as soon as it reports again.
+// Keep every receiver this remote controls on the DMX address set for it (Settings
+// screen). A receiver that missed the change (off or out of range) gets it as soon as
+// it reports again.
 static void updateDmxBase(uint32_t now) {
   static uint32_t lastSend = 0;
 
-  int rx = hazerDmxPageRx();
-  if (rx >= 0 && hazerDmxEdit() < 0) {
-    RadioStatus rs = radioGetStatus(rx);
-    if (rs.linkUp && !(rs.flags & HZ_FLAG_BUSY)) hazerLoadDmxBase(rs.base);
-  }
-
   if (now - lastSend < 200) return;
   lastSend = now;
-  for (int i = 0; i < RECEIVER_COUNT && i < DMX_PAGE_COUNT; i++) {
+  for (int i = 0; i < RECEIVER_COUNT && i < DMX_RX_COUNT; i++) {
     int want = hazerDmxWanted(i);
     RadioStatus rs = radioGetStatus(i);
     if (want && rs.linkUp && !(rs.flags & HZ_FLAG_BUSY) && rs.base != want) {   // only receivers we control
@@ -63,10 +58,13 @@ void loop() {
 
   if (uiConfigActive()) {
     uiConfigUpdate(touched, tx, ty, now);
+  } else if (uiSettingsActive()) {
+    uiSettingsUpdate(touched, tx, ty, now);
   } else {
     UiResult r = uiPanelUpdate(touched, tx, ty, now);
     if (r == UI_REQUEST_CONFIG)   uiConfigStart();
     if (r == UI_REQUEST_TAKEOVER) uiTakeoverStart();
+    if (r == UI_REQUEST_SETTINGS) uiSettingsStart();
   }
 
   hazerUpdate(now);
@@ -86,8 +84,9 @@ void loop() {
     radioSendData(v, HZ_HAZER_VALUES);
   }
 
-  if (uiConfigActive()) uiConfigRender(now);
-  else                  uiPanelRender(now);
+  if (uiConfigActive())        uiConfigRender(now);
+  else if (uiSettingsActive()) uiSettingsRender(now);
+  else                         uiPanelRender(now);
 
   delay(5);
 }
