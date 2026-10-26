@@ -166,9 +166,9 @@ void uiPanelRender(uint32_t now) {
     lastSample = now;
     for (int i = 0; i < RECEIVER_COUNT; i++) shownRssi[i] = rs[i].linkUp ? rs[i].rssi : -127;
   }
-  int weakest = 0;                         // weakest selected link drives the bars
+  int weakest = 0;                         // weakest linked receiver drives the bars
   for (int i = 0; i < RECEIVER_COUNT; i++)
-    if ((mask & (1 << i)) && (weakest == 0 || shownRssi[i] < weakest)) weakest = shownRssi[i];
+    if ((mask & (1 << i)) && rs[i].linkUp && (weakest == 0 || shownRssi[i] < weakest)) weakest = shownRssi[i];
 
   char l1[28], l2[36], info[48];
   info[0] = 0;
@@ -181,11 +181,9 @@ void uiPanelRender(uint32_t now) {
     if (err) {
       snprintf(l1, sizeof(l1), "Radio Error");
       snprintf(l2, sizeof(l2), "%s", err);
-    } else if (!linkUp) {
+    } else if (nLinked == 0) {             // a partial link is shown on the info line instead
       snprintf(l1, sizeof(l1), "No Link");
-      if (nSel > 1 && nLinked > 0) snprintf(l2, sizeof(l2), "Searching for %s", RECEIVERS[missing].name);
-      else if (nSel > 1)           snprintf(l2, sizeof(l2), "Searching for receivers");
-      else                         snprintf(l2, sizeof(l2), "Searching for receiver");
+      snprintf(l2, sizeof(l2), nSel > 1 ? "Searching for receivers" : "Searching for receiver");
     } else if (anyConfig) {
       snprintf(l1, sizeof(l1), "Rx Config Mode");
       snprintf(l2, sizeof(l2), "Haze disabled");
@@ -236,18 +234,20 @@ void uiPanelRender(uint32_t now) {
     }
   } else {                                 // several receivers: one short entry each
     size_t n = 0;
+    bool partial = nLinked > 0 && !linkUp;
+    if (partial) n += snprintf(info, sizeof(info), "No Link - searching %s  ", RECEIVERS[missing].name);
     for (int i = 0; i < RECEIVER_COUNT && n < sizeof(info); i++) {
       if (!(mask & (1 << i))) continue;
       const char* name = RECEIVERS[i].name;
-      if (!rs[i].linkUp)                       n += snprintf(info + n, sizeof(info) - n, "%s no link  ", name);
+      if (!rs[i].linkUp) { if (!partial)       n += snprintf(info + n, sizeof(info) - n, "%s no link  ", name); }
       else if (rs[i].flags & HZ_FLAG_FAILSAFE) n += snprintf(info + n, sizeof(info) - n, "%s FS %ddBm  ", name, shownRssi[i]);
       else                                     n += snprintf(info + n, sizeof(info) - n, "%s %ddBm  ", name, shownRssi[i]);
     }
     infoRed = !linkUp || anyFailsafe;
   }
 
-  bool out = hazerEmit() && linkUp;
-  int bars = linkUp ? rssiToBars(weakest) : 0;
+  bool out = hazerEmit() && nLinked > 0;
+  int bars = nLinked > 0 ? rssiToBars(weakest) : 0;
 
   uint8_t active = 0;
   if (hazerTimerActive())  active |= (1 << 3);
