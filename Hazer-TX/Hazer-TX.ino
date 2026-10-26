@@ -28,7 +28,7 @@ static void updateDmxBase(uint32_t now) {
   int rx = hazerDmxPageRx();
   if (rx >= 0 && hazerDmxEdit() < 0) {
     RadioStatus rs = radioGetStatus(rx);
-    if (rs.linkUp) hazerLoadDmxBase(rs.base);
+    if (rs.linkUp && !(rs.flags & HZ_FLAG_BUSY)) hazerLoadDmxBase(rs.base);
   }
 
   if (now - lastSend < 200) return;
@@ -36,7 +36,7 @@ static void updateDmxBase(uint32_t now) {
   for (int i = 0; i < RECEIVER_COUNT && i < DMX_PAGE_COUNT; i++) {
     int want = hazerDmxWanted(i);
     RadioStatus rs = radioGetStatus(i);
-    if (want && rs.linkUp && rs.base != want) {
+    if (want && rs.linkUp && !(rs.flags & HZ_FLAG_BUSY) && rs.base != want) {   // only receivers we control
       radioSendCommandTo(i, HZ_CMD_SET_BASE, want);
       Serial.printf("[TX] %s DMX base %u -> %d\n", RECEIVERS[i].name, rs.base, want);
     }
@@ -60,8 +60,10 @@ void loop() {
 
   if (uiConfigActive()) {
     uiConfigUpdate(touched, tx, ty, now);
-  } else if (uiPanelUpdate(touched, tx, ty, now) == UI_REQUEST_CONFIG) {
-    uiConfigStart();
+  } else {
+    UiResult r = uiPanelUpdate(touched, tx, ty, now);
+    if (r == UI_REQUEST_CONFIG)   uiConfigStart();
+    if (r == UI_REQUEST_TAKEOVER) uiTakeoverStart();
   }
 
   hazerUpdate(now);

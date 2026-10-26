@@ -39,6 +39,7 @@ void uiPanelInvalidate() {
 UiResult uiPanelUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
   static int      heldBtn = -1;
   static uint32_t lastTouchMs = 0, nextRepeat = 0, lcdHoldStart = 0, holdStart = 0;
+  static int32_t  lcdTouchY = 0;
 
   if (ignoreTouch) {                 // wait for finger release after returning from another screen
     if (!touched) ignoreTouch = false;
@@ -55,7 +56,7 @@ UiResult uiPanelUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
 
   // Hidden gesture: hold the blue LCD area to open PIN entry
   if (touched && ty < 100 && hit < 0) {
-    if (lcdHoldStart == 0) lcdHoldStart = now;
+    if (lcdHoldStart == 0) { lcdHoldStart = now; lcdTouchY = ty; }
     if (now - lcdHoldStart >= CONFIG_HOLD_MS) {
       lcdHoldStart = 0;
       if (heldBtn >= 0) { hazerButtonUp(heldBtn); heldBtn = -1; }
@@ -63,7 +64,15 @@ UiResult uiPanelUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
       return UI_REQUEST_CONFIG;
     }
   } else {
+    // a short tap on the info line offers to take over receivers another remote controls
+    bool infoTap = !touched && lcdHoldStart && now - lcdHoldStart < 600 && lcdTouchY >= 66;
     lcdHoldStart = 0;
+    if (infoTap) {
+      for (int i = 0; i < RECEIVER_COUNT; i++) {
+        RadioStatus rs = radioGetStatus(i);
+        if ((radioTargets() & (1 << i)) && rs.linkUp && (rs.flags & HZ_FLAG_BUSY)) return UI_REQUEST_TAKEOVER;
+      }
+    }
   }
 
   if (hit != heldBtn) {
@@ -183,13 +192,15 @@ void uiPanelRender(uint32_t now) {
   // combine the status of the selected receivers
   uint8_t     mask = radioTargets();
   RadioStatus rs[RECEIVER_COUNT];
-  int  nSel = 0, nLinked = 0;
+  int  nSel = 0, nLinked = 0, nBusy = 0;   // nLinked counts only receivers this remote controls
   bool anyConfig = false, anyFailsafe = false;
   for (int i = 0; i < RECEIVER_COUNT; i++) {
     rs[i] = radioGetStatus(i);
     if (!(mask & (1 << i))) continue;
     nSel++;
-    if (rs[i].linkUp) {
+    if (rs[i].linkUp && (rs[i].flags & HZ_FLAG_BUSY)) {
+      nBusy++;
+    } else if (rs[i].linkUp) {
       nLinked++;
       if (rs[i].flags & HZ_FLAG_CONFIG)   anyConfig = true;
       if (rs[i].flags & HZ_FLAG_FAILSAFE) anyFailsafe = true;
@@ -213,6 +224,9 @@ void uiPanelRender(uint32_t now) {
     if (err) {
       snprintf(l1, sizeof(l1), "Radio Error");
       snprintf(l2, sizeof(l2), "%s", err);
+    } else if (nLinked == 0 && nBusy > 0) {
+      snprintf(l1, sizeof(l1), "In Use");
+      snprintf(l2, sizeof(l2), "Tap below to take over");
     } else if (nLinked == 0) {             // a partial link is shown on the info line instead
       snprintf(l1, sizeof(l1), "No Link");
       snprintf(l2, sizeof(l2), nSel > 1 ? "Searching for receivers" : "Searching for receiver");
@@ -254,17 +268,20 @@ void uiPanelRender(uint32_t now) {
     }
   }
 
-  // info line: "RX1 Ch89 -57dBm [bars] | RX2 Ch109 No link [X]" (fail-safe = orange text)
+  // info line: "RX1 Ch89 -57dBm [bars] | RX2 Ch109 No link [X]" (fail-safe = orange text,
+  // "In use" = another remote has control)
   size_t n = 0;
   info[0] = 0;
   for (int i = 0; i < RECEIVER_COUNT && n < sizeof(info); i++) {
     if (!(mask & (1 << i))) continue;
     const char* name = RECEIVERS[i].name;
     const char* sep  = n > 0 ? "|" : "";
-    int  base = hazerDmxWanted(i) ? hazerDmxWanted(i) : rs[i].base;   // 0 = unknown
+    bool busy = rs[i].linkUp && (rs[i].flags & HZ_FLAG_BUSY);
+    int  base = (hazerDmxWanted(i) && !busy) ? hazerDmxWanted(i) : rs[i].base;   // 0 = unknown
     char ch[10] = "";
     if (base) snprintf(ch, sizeof(ch), " Ch%d", base);
     if (!rs[i].linkUp)                       n += snprintf(info + n, sizeof(info) - n, "%s%s%s No link#X", sep, name, ch);
+    else if (busy)                           n += snprintf(info + n, sizeof(info) - n, "%s%s%s In use#%c", sep, name, ch, 'a' + rssiToBars(shownRssi[i]));
     else if (rs[i].flags & HZ_FLAG_FAILSAFE) n += snprintf(info + n, sizeof(info) - n, "%s%s%s %ddBm#%c", sep, name, ch, shownRssi[i], 'a' + rssiToBars(shownRssi[i]));
     else                                     n += snprintf(info + n, sizeof(info) - n, "%s%s%s %ddBm#%d", sep, name, ch, shownRssi[i], rssiToBars(shownRssi[i]));
   }

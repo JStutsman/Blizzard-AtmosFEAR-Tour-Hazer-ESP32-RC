@@ -1,6 +1,8 @@
 // UiConfig.cpp  (Hazer-TX)
 // Flow: hidden long-press -> 4-digit PIN (lockout after 3 wrong tries) -> confirm
 // -> stop haze and send ENTER_CONFIG until the receiver reports config mode.
+// Tapping the info line while another remote controls a selected receiver opens a
+// "take control" confirm, then sends TAKE_CONTROL until the receiver accepts.
 // HZ_DEBUG_PIN on the same keypad opens a live debug/info screen instead
 // (RSSI shown as "here/at RX": reply strength at the remote / our packets at the receiver).
 #include <Arduino.h>
@@ -14,7 +16,7 @@
 #include "UiPanel.h"
 #include "UiConfig.h"
 
-enum UcState { UC_OFF, UC_PIN, UC_CONFIRM, UC_SENDING, UC_RESULT, UC_DEBUG };
+enum UcState { UC_OFF, UC_PIN, UC_CONFIRM, UC_SENDING, UC_RESULT, UC_DEBUG, UC_TAKE_CONFIRM, UC_TAKING, UC_TAKE_RESULT };
 
 static UcState  st = UC_OFF;
 static bool     dirty = false;
@@ -29,6 +31,7 @@ static uint32_t lastAct = 0, stateStart = 0, lastSend = 0;
 static bool     resultOk = false;
 static const char* pinMsg = "";
 static bool     debugRefresh = false;      // redraw the debug values without clearing the screen
+static uint8_t  takeMask = 0;              // receivers to take control of
 
 // ---------------- keypad layout ----------------
 static const char* KEYS[12] = {"1","2","3","4","5","6","7","8","9","CLR","0","BACK"};
@@ -63,6 +66,35 @@ void uiConfigStart() {
   lastLockSec = -1;
   wasTouched = true;          // ignore the touch that opened this screen until released
   dirty = true;
+}
+
+void uiTakeoverStart() {
+  takeMask = 0;
+  for (int i = 0; i < RECEIVER_COUNT; i++) {
+    RadioStatus rs = radioGetStatus(i);
+    if ((radioTargets() & (1 << i)) && rs.linkUp && (rs.flags & HZ_FLAG_BUSY)) takeMask |= (1 << i);
+  }
+  if (!takeMask) return;
+  st = UC_TAKE_CONFIRM;
+  lastAct = millis();
+  wasTouched = true;
+  dirty = true;
+}
+
+static bool takeoverDone() {               // every receiver in takeMask now answers us as owner
+  for (int i = 0; i < RECEIVER_COUNT; i++) {
+    if (!(takeMask & (1 << i))) continue;
+    RadioStatus rs = radioGetStatus(i);
+    if (!rs.linkUp || (rs.flags & HZ_FLAG_BUSY)) return false;
+  }
+  return true;
+}
+
+static void takeNames(char* buf, size_t len) {   // "RX1" or "RX1 + RX2"
+  buf[0] = 0;
+  size_t n = 0;
+  for (int i = 0; i < RECEIVER_COUNT && n < len; i++)
+    if (takeMask & (1 << i)) n += snprintf(buf + n, len - n, "%s%s", n ? " + " : "", RECEIVERS[i].name);
 }
 
 bool uiConfigActive()  { return st != UC_OFF; }
@@ -152,6 +184,32 @@ void uiConfigUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
     case UC_RESULT:
       if (tap || now - stateStart > 8000) finish();
       break;
+    case UC_TAKE_CONFIRM:
+      if (now - lastAct > PIN_IDLE_TIMEOUT_MS) { finish(); return; }
+      if (tap && ty >= 170 && ty < 226) {
+        if (tx >= 10 && tx < 150) {                       // CANCEL
+          finish();
+        } else if (tx >= 170 && tx < 310) {               // TAKE
+          st = UC_TAKING;
+          stateStart = now;
+          lastSend = 0;
+          dirty = true;
+        }
+      }
+      break;
+    case UC_TAKING:
+      if (now - lastSend >= 100) {
+        lastSend = now;
+        for (int i = 0; i < RECEIVER_COUNT; i++)
+          if (takeMask & (1 << i)) radioSendCommandTo(i, HZ_CMD_TAKE_CONTROL, 0);
+      }
+      if (takeoverDone() || now - stateStart > 2000) {
+        resultOk = takeoverDone(); st = UC_TAKE_RESULT; stateStart = now; dirty = true;
+      }
+      break;
+    case UC_TAKE_RESULT:
+      if (tap || now - stateStart > (resultOk ? 1500UL : 5000UL)) finish();
+      break;
     case UC_DEBUG:
       if (tap) { finish(); return; }
       if (now - lastSend >= 500) { lastSend = now; debugRefresh = true; }   // live values
@@ -213,7 +271,7 @@ static void renderDebug(uint32_t now) {
                 r.rssi, r.rxRssi, r.echo[HZV_EMIT] >= 128 ? 1 : 0,
                 (r.echo[HZV_FAN] * 100 + 127) / 255, (r.echo[HZV_VOL] * 100 + 127) / 255,
                 (r.flags & HZ_FLAG_FAILSAFE) ? " FS" : "", (r.flags & HZ_FLAG_CONFIG) ? " CFG" : "",
-                (r.flags & HZ_FLAG_IDENTIFY) ? " ID" : "");
+                (r.flags & HZ_FLAG_IDENTIFY) ? " ID" : (r.flags & HZ_FLAG_BUSY) ? " BUSY" : "");
     }
   }
   lcd.setTextPadding(0);
@@ -269,6 +327,37 @@ void uiConfigRender(uint32_t now) {
       lcd.drawString("Sending config command...", 160, 120);
       break;
     }
+    case UC_TAKE_CONFIRM: {
+      char names[24], title[40];
+      takeNames(names, sizeof(names));
+      snprintf(title, sizeof(title), "Take control of %s?", names);
+      drawTitle(title);
+      lcd.setFont(&fonts::Font2);
+      lcd.setTextDatum(textdatum_t::middle_center);
+      lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+      lcd.drawString("Another remote is controlling it.", 160, 70);
+      lcd.drawString("That remote will show \"In use\" and", 160, 92);
+      lcd.drawString("this remote's haze settings take", 160, 114);
+      lcd.drawString("effect immediately.", 160, 136);
+      drawBtn(10, 170, 140, 56, "CANCEL", lcd.color565(60, 60, 70));
+      drawBtn(170, 170, 140, 56, "TAKE", lcd.color565(200, 110, 20));
+      break;
+    }
+    case UC_TAKING:
+      drawTitle("Taking control");
+      lcd.setFont(&fonts::Font2);
+      lcd.setTextDatum(textdatum_t::middle_center);
+      lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+      lcd.drawString("Waiting for the receiver...", 160, 120);
+      break;
+    case UC_TAKE_RESULT:
+      drawTitle(resultOk ? "Control taken" : "No response");
+      lcd.setFont(&fonts::Font2);
+      lcd.setTextDatum(textdatum_t::middle_center);
+      lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+      if (!resultOk) lcd.drawString("The receiver did not accept. Try again.", 160, 110);
+      lcd.drawString("Tap to close", 160, 210);
+      break;
     case UC_DEBUG:
       drawTitle("Debug Info");
       renderDebug(now);
