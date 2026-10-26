@@ -19,6 +19,7 @@
 #include "Theme.h"
 #include "UiSettings.h"
 #include "UiNumpad.h"
+#include "SerialCli.h"
 
 static uint8_t pctTo255(uint8_t pct) { return (uint8_t)(((uint16_t)pct * 255) / 100); }
 
@@ -48,6 +49,7 @@ void setup() {
   themeSetDark(hazerDarkMode());
   themeSetBacklight(hazerBacklightPct());
   radioBegin();
+  cliBegin();
   radioSetTargets(hazerTargetMask());
 }
 
@@ -70,6 +72,7 @@ void loop() {
     if (r == UI_REQUEST_SETTINGS) uiSettingsStart();
   }
 
+  cliLoop(now);
   hazerUpdate(now);
   radioSetTargets(hazerTargetMask());
   themeSetDark(hazerDarkMode());
@@ -78,7 +81,7 @@ void loop() {
 
   // Send the current control values at a fixed rate (paused while the config command is sent)
   static uint32_t nextSend = 0;
-  if (!uiConfigSending() && (int32_t)(now - nextSend) >= 0) {
+  if (!uiConfigSending() && !cliSending() && (int32_t)(now - nextSend) >= 0) {
     nextSend = now + SEND_INTERVAL_MS;
     uint8_t v[HZ_HAZER_VALUES];
     v[HZV_EMIT] = hazerEmit() ? 255 : 0;

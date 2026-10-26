@@ -14,6 +14,11 @@ void     hazerAdjust(int delta);          // UP / DOWN on the current page
 void     hazerSetPageValue(int page, int v);   // typed on the number pad (clamped, saved)
 void     hazerUpdate(uint32_t now);       // run the timer
 void     hazerStopAll();                  // stop haze, cancel timer
+// explicit controls for the serial command line (the touch buttons toggle instead)
+void     hazerStart();                    // latch haze on (like START/STOP from idle)
+void     hazerSetTimer(bool on);
+void     hazerSetManual(bool on);         // like holding / releasing MANUAL
+void     hazerSetPage(int page);
 
 bool     hazerEmit();                     // should the machine be emitting right now?
 uint8_t  hazerFanPct();

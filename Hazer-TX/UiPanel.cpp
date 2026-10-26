@@ -208,6 +208,10 @@ static bool    cOut = false;
 static int     cPressed = -2;
 static uint8_t cActive = 255;
 
+void uiPanelText(const char** l1, const char** l2, const char** info) {
+  *l1 = c1; *l2 = c2; *info = cInfo;
+}
+
 void uiPanelRender(uint32_t now) {
   static bool cDark = false;
   if (themeDark() != cDark) { cDark = themeDark(); needFull = true; }   // palette changed

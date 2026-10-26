@@ -214,7 +214,7 @@ toc = ["1. How the system works", "2. Quick start", "3. The remote's screen",
        "4. Running the hazer", "5. Status messages", "6. Settings (gear icon)",
        "7. Typing values on the number pad", "8. Two receivers and DMX addresses",
        "9. More than one remote", "10. The receiver", "11. Receiver setup mode",
-       "12. Debug screen", "13. Troubleshooting", "14. Reference"]
+       "12. Debug screen", "13. Troubleshooting", "14. Serial commands", "15. Reference"]
 for t in toc:
     P(t)
 story.append(PageBreak())
@@ -487,7 +487,39 @@ table([
 story.append(PageBreak())
 
 # ---------------- 14
-story.append(Paragraph("14. Reference", h1))
+story.append(Paragraph("14. Serial commands", h1))
+P("Everything the touchscreen does can also be done from a computer. Connect the remote by USB and open a "
+  "serial terminal at <b>115200 baud</b> (for example <font face='Courier'>pio device monitor -b 115200</font>, "
+  "or the Arduino serial monitor). Type a command and press Enter; type <b>help</b> for the list. "
+  "Commands are not case-sensitive. The screen updates to match.")
+table([
+    ["Command", "What it does"],
+    ["start / stop", "Haze on (latched) / stop everything, including the timer and manual."],
+    ["manual on | off | <i>seconds</i>", "Hold MANUAL. With a number (1-60) it releases by itself."],
+    ["timer on | off", "Interval/duration cycles."],
+    ["volume <i>1-100</i>, fan <i>1-100</i>", "Set volume or fan %."],
+    ["interval <i>0-200</i>, duration <i>0-200</i>", "Set the timer values in seconds."],
+    ["function, up, down", "Press those panel buttons."],
+    ["page main|interval|duration|volume|fan", "Go to a FUNCTION page."],
+    ["rx 1 | 2 | both", "Receivers to control (Settings)."],
+    ["dmx <i>1|2</i> <i>1-510</i>", "DMX address of a receiver (Settings). Sent while it is linked and "
+                                    "controlled by this remote."],
+    ["display normal | dark, backlight <i>5-100</i>", "Display settings."],
+    ["take 1 | 2 | both", "Take control from another remote."],
+    ["config <i>PIN</i>", "Send the selected receivers into setup mode (stops the haze)."],
+    ["identify 1 | 2", "Blink a receiver's LED for 3 seconds."],
+    ["status", "State, values, settings and one line per receiver."],
+    ["screen", "The text currently on the blue display."],
+    ["debug", "Everything on the debug screen."],
+    ["watch <i>seconds</i> | off", "Print the status repeatedly."],
+    ["reboot", "Restart the remote."],
+], [2.6 * inch, 3.9 * inch])
+P("Example: <font face='Courier'>rx both</font>, <font face='Courier'>dmx 1 89</font>, "
+  "<font face='Courier'>dmx 2 109</font>, <font face='Courier'>status</font>.")
+story.append(PageBreak())
+
+# ---------------- 15
+story.append(Paragraph("15. Reference", h1))
 story.append(Paragraph("Specifications", h2))
 table([
     ["Item", "Value"],

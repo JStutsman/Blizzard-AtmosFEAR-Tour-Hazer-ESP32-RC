@@ -121,6 +121,27 @@ void hazerStopAll() {
   manualHeld = false;
 }
 
+void hazerStart() { mode = HM_ON; }
+
+void hazerSetTimer(bool on) {
+  if (on == (mode == HM_TIMER)) return;
+  if (on) {
+    mode = HM_TIMER;
+    timerPhase = 0;
+    phaseEnd = millis() + (uint32_t)interval * 1000UL;
+  } else {
+    mode = HM_IDLE;
+  }
+}
+
+void hazerSetManual(bool on) { manualHeld = on; }
+
+void hazerSetPage(int pg) {
+  if (pg < 0 || pg >= PG_COUNT) return;
+  if (dirty) saveSettings();
+  page = pg;
+}
+
 bool hazerEmit() {
   return mode == HM_ON || manualHeld || (mode == HM_TIMER && timerPhase == 1);
 }

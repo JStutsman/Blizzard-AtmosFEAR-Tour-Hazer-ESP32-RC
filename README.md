@@ -21,6 +21,7 @@ Firmware **v1.1**. Built and running on hardware: 2 remotes and 2 receivers.
 - **Fail-safe:** a receiver stops the hazer after 3 s without data.
 - **Debug screen** (PIN 1234): firmware versions and build date, MACs, signal at both ends, echoed DMX values and status flags.
 - **Receiver setup mode** (PIN 4817): sends the receivers into their WiFi setup page.
+- **Serial command line:** everything the touchscreen does, plus `status`, `screen`, `debug` and `watch`, over USB at 115200 baud. Type `help`.
 
 ## Hardware
 
@@ -44,6 +45,19 @@ pio run -d remote-controller -t upload --upload-port COMxx
 ```
 
 `platformio.ini` points `src_dir` at `Hazer-TX/`, so the sketch also opens unchanged in the Arduino IDE. For the Arduino IDE, use board *ESP32 Dev Module*, ESP32 core 3.x, and install the LovyanGFX library.
+
+### Serial commands
+
+Connect by USB and open a terminal at 115200 baud, e.g. `pio device monitor -d remote-controller`. A few examples:
+
+```
+start / stop                 manual on|off|<seconds>      timer on|off
+volume 60   fan 80           interval 30   duration 5     page interval
+rx both     dmx 1 89         display dark  backlight 30   take 2
+status      screen           debug         watch 2        help
+```
+
+The full list is in `help` and in section 14 of the user guide.
 
 ### Configuration (`Hazer-TX/Config.h`)
 
@@ -72,6 +86,7 @@ Hazer-TX/
   UiSettings.*     gear screen
   UiNumpad.*       number pad
   UiConfig.*       PIN entry, receiver setup mode, take control, debug screen
+  SerialCli.*      serial command line (type "help")
   Theme.*          Normal / Dark colors and backlight
   Display.*        LovyanGFX setup for the CYD
   BuildStamp.cpp   build date (touched before every build by touch_build_stamp.py)
