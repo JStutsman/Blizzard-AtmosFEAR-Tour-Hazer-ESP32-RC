@@ -1,6 +1,6 @@
 // UiPanel.cpp  (Hazer-TX)
 // Draws the panel mimic: a blue "LCD" with two text lines plus a small info line
-// (receiver version, signal strength, value echo), and six touch buttons laid out
+// (signal strength and a signal icon per selected receiver), and six touch buttons laid out
 // like the machine (FUNCTION UP DOWN / TIMER START-STOP MANUAL).
 #include <Arduino.h>
 #include "Config.h"
@@ -93,14 +93,6 @@ static void drawButtons(int pressed, uint8_t active) {
   }
 }
 
-static void drawBars(int level) {
-  for (int i = 0; i < 4; i++) {
-    int h = 4 + i * 4;
-    uint16_t col = (i < level) ? lcd.color565(120, 255, 140) : lcd.color565(15, 60, 130);
-    lcd.fillRect(250 + i * 7, 34 - h, 5, h, col);
-  }
-}
-
 // small 4-bar signal icon (15 px wide) with its bottom at y; level < 0 = no link (red X)
 static void drawMiniBars(int x, int y, int level, uint16_t bg) {
   for (int i = 0; i < 4; i++) {
@@ -116,15 +108,13 @@ static void drawMiniBars(int x, int y, int level, uint16_t bg) {
   }
 }
 
-// Segmented info line, one entry per receiver: "RX1 -57dBm#3|RX2 No link#X".
+// Info line, one entry per selected receiver: "RX1 -57dBm#3|RX2 No link#X".
 // The character after '#' is the signal level 0-4, or X for no link.
-#define INFO_SEGMENTED '\x1F'          // first char of info marks the segmented format
-
 static void drawInfoSegments(const char* info, uint16_t bg) {
   const uint16_t okCol = lcd.color565(190, 215, 255), warnCol = lcd.color565(255, 190, 80);
   const char* SEP = "  |  ";
   char text[4][24]; int level[4]; int n = 0;
-  for (const char* p = info + 1; *p && n < 4; ) {
+  for (const char* p = info; *p && n < 4; ) {
     const char* hash = strchr(p, '#');
     if (!hash || !hash[1]) break;
     int len = min((int)(hash - p), 23);
@@ -152,7 +142,7 @@ static void drawInfoSegments(const char* info, uint16_t bg) {
   lcd.setTextDatum(textdatum_t::middle_center);
 }
 
-static void drawLcd(const char* l1, const char* l2, const char* info, bool infoRed, bool out, int bars) {
+static void drawLcd(const char* l1, const char* l2, const char* info, bool out) {
   uint16_t blue = lcd.color565(20, 90, 200);
   lcd.fillRoundRect(8, 8, 304, 88, 8, blue);
   lcd.drawRoundRect(8, 8, 304, 88, 8, TFT_WHITE);
@@ -162,13 +152,7 @@ static void drawLcd(const char* l1, const char* l2, const char* info, bool infoR
   lcd.drawString(l1, 150, 26);
   lcd.drawString(l2, 160, 56);
   lcd.setFont(&fonts::Font2);
-  if (info[0] == INFO_SEGMENTED) {
-    drawInfoSegments(info, blue);
-  } else {
-    lcd.setTextColor(infoRed ? lcd.color565(255, 190, 80) : lcd.color565(190, 215, 255), blue);
-    lcd.drawString(info, 160, 83);
-  }
-  drawBars(bars);
+  drawInfoSegments(info, blue);
   if (out) lcd.fillCircle(296, 22, 7, TFT_RED);
 }
 
@@ -182,35 +166,33 @@ static int rssiToBars(int rssi) {
 
 // cache of what is currently on screen
 static char    c1[28] = "", c2[36] = "", cInfo[48] = "";
-static bool    cOut = false, cInfoRed = false;
-static int     cBars = -1, cPressed = -2;
+static bool    cOut = false;
+static int     cPressed = -2;
 static uint8_t cActive = 255;
 
 void uiPanelRender(uint32_t now) {
   if (needFull) {
     lcd.fillScreen(TFT_BLACK);
     c1[0] = c2[0] = cInfo[0] = 0;
-    cBars = -1; cPressed = -2; cActive = 255;
+    cPressed = -2; cActive = 255;
     needFull = false;
   }
 
   // combine the status of the selected receivers
   uint8_t     mask = radioTargets();
   RadioStatus rs[RECEIVER_COUNT];
-  int  nSel = 0, firstSel = -1, nLinked = 0;
+  int  nSel = 0, nLinked = 0;
   bool anyConfig = false, anyFailsafe = false;
   for (int i = 0; i < RECEIVER_COUNT; i++) {
     rs[i] = radioGetStatus(i);
     if (!(mask & (1 << i))) continue;
     nSel++;
-    if (firstSel < 0) firstSel = i;
     if (rs[i].linkUp) {
       nLinked++;
       if (rs[i].flags & HZ_FLAG_CONFIG)   anyConfig = true;
       if (rs[i].flags & HZ_FLAG_FAILSAFE) anyFailsafe = true;
     }
   }
-  bool linkUp = nSel > 0 && nLinked == nSel;
 
   // numeric RSSI is sampled once a second so the display doesn't flicker
   static uint32_t lastSample = 0;
@@ -219,13 +201,8 @@ void uiPanelRender(uint32_t now) {
     lastSample = now;
     for (int i = 0; i < RECEIVER_COUNT; i++) shownRssi[i] = rs[i].linkUp ? rs[i].rssi : -127;
   }
-  int weakest = 0;                         // weakest linked receiver drives the bars
-  for (int i = 0; i < RECEIVER_COUNT; i++)
-    if ((mask & (1 << i)) && rs[i].linkUp && (weakest == 0 || shownRssi[i] < weakest)) weakest = shownRssi[i];
 
   char l1[28], l2[36], info[48];
-  info[0] = 0;
-  bool infoRed = false;
   const char* err = radioError();
   int page = hazerPage();
 
@@ -268,38 +245,19 @@ void uiPanelRender(uint32_t now) {
     }
   }
 
-  // info line: receiver version, signal, value echo, fail-safe flag
-  if (nSel == 1) {
-    const RadioStatus& r = rs[firstSel];
-    const char* name = RECEIVERS[firstSel].name;
-    if (!r.linkUp) {
-      snprintf(info, sizeof(info), "%s: no link", name);
-      infoRed = true;
-    } else if (r.flags & HZ_FLAG_FAILSAFE) {
-      snprintf(info, sizeof(info), "FAILSAFE  %s v%u.%u  %ddBm", name, r.fwMajor, r.fwMinor, shownRssi[firstSel]);
-      infoRed = true;
-    } else {
-      int echoE = r.echo[HZV_EMIT] >= 128 ? 1 : 0;
-      int echoF = (r.echo[HZV_FAN] * 100 + 127) / 255;
-      int echoV = (r.echo[HZV_VOL] * 100 + 127) / 255;
-      snprintf(info, sizeof(info), "%s v%u.%u %ddBm  Echo E%d F%d V%d",
-               name, r.fwMajor, r.fwMinor, shownRssi[firstSel], echoE, echoF, echoV);
-    }
-  } else {                                 // several receivers: "RX1 -57dBm [bars] | RX2 No link [X]"
-    size_t n = snprintf(info, sizeof(info), "%c", INFO_SEGMENTED);
-    for (int i = 0; i < RECEIVER_COUNT && n < sizeof(info); i++) {
-      if (!(mask & (1 << i))) continue;
-      const char* name = RECEIVERS[i].name;
-      const char* sep  = n > 1 ? "|" : "";
-      if (!rs[i].linkUp)                       n += snprintf(info + n, sizeof(info) - n, "%s%s No link#X", sep, name);
-      else if (rs[i].flags & HZ_FLAG_FAILSAFE) n += snprintf(info + n, sizeof(info) - n, "%s%s FS %ddBm#%d", sep, name, shownRssi[i], rssiToBars(shownRssi[i]));
-      else                                     n += snprintf(info + n, sizeof(info) - n, "%s%s %ddBm#%d", sep, name, shownRssi[i], rssiToBars(shownRssi[i]));
-    }
-    infoRed = !linkUp || anyFailsafe;
+  // info line: "RX1 -57dBm [bars] | RX2 No link [X]"
+  size_t n = 0;
+  info[0] = 0;
+  for (int i = 0; i < RECEIVER_COUNT && n < sizeof(info); i++) {
+    if (!(mask & (1 << i))) continue;
+    const char* name = RECEIVERS[i].name;
+    const char* sep  = n > 0 ? "|" : "";
+    if (!rs[i].linkUp)                       n += snprintf(info + n, sizeof(info) - n, "%s%s No link#X", sep, name);
+    else if (rs[i].flags & HZ_FLAG_FAILSAFE) n += snprintf(info + n, sizeof(info) - n, "%s%s FS %ddBm#%d", sep, name, shownRssi[i], rssiToBars(shownRssi[i]));
+    else                                     n += snprintf(info + n, sizeof(info) - n, "%s%s %ddBm#%d", sep, name, shownRssi[i], rssiToBars(shownRssi[i]));
   }
 
   bool out = hazerEmit() && nLinked > 0;
-  int bars = nLinked > 0 ? rssiToBars(weakest) : 0;
 
   uint8_t active = 0;
   if (hazerTimerActive())  active |= (1 << 3);
@@ -307,10 +265,10 @@ void uiPanelRender(uint32_t now) {
   if (hazerManualHeld())   active |= (1 << 5);
 
   if (strcmp(l1, c1) || strcmp(l2, c2) || strcmp(info, cInfo) ||
-      out != cOut || infoRed != cInfoRed || bars != cBars) {
-    drawLcd(l1, l2, info, infoRed, out, bars);
+      out != cOut) {
+    drawLcd(l1, l2, info, out);
     strcpy(c1, l1); strcpy(c2, l2); strcpy(cInfo, info);
-    cOut = out; cInfoRed = infoRed; cBars = bars;
+    cOut = out;
   }
   if (pressedBtn != cPressed || active != cActive) {
     drawButtons(pressedBtn, active);
