@@ -89,7 +89,7 @@ Hazer-TX/
   SerialCli.*      serial command line (type "help")
   Theme.*          Normal / Dark colors and backlight
   Display.*        LovyanGFX setup for the CYD
-  BuildStamp.cpp   build date (touched before every build by touch_build_stamp.py)
+  BuildStamp.cpp   build date (recompiled every build via touch_build_stamp.py)
 docs/
   Hazer-Remote-User-Guide.pdf
   make_user_guide.py   rebuilds the PDF (needs reportlab)

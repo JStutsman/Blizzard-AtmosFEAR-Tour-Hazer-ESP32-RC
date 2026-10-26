@@ -1,6 +1,8 @@
-# PlatformIO pre-build script: touch BuildStamp.cpp so it is recompiled every build
-# and the build date/time on the remote's debug screen is current.
+# PlatformIO pre-build script: delete BuildStamp.cpp's object file so it is recompiled
+# every build and the build date/time on the remote's debug screen is current.
+# (Touching the source is not enough: SCons decides by content, not timestamp.)
 Import("env")
-import os
+import glob, os
 
-os.utime(os.path.join(env.subst("$PROJECT_SRC_DIR"), "BuildStamp.cpp"), None)
+for obj in glob.glob(os.path.join(env.subst("$BUILD_DIR"), "**", "BuildStamp.cpp.o"), recursive=True):
+    os.remove(obj)
