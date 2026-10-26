@@ -111,6 +111,16 @@ static void printStatus(bool verbose) {
   for (int i = 0; i < RECEIVER_COUNT; i++) printReceiver(i, verbose);
 }
 
+static void printPage() {                       // current FUNCTION page and its value
+  switch (hazerPage()) {
+    case PG_INTERVAL: Serial.printf("Page: interval  %ds\n", hazerInterval()); break;
+    case PG_DURATION: Serial.printf("Page: duration  %ds\n", hazerDuration()); break;
+    case PG_VOLUME:   Serial.printf("Page: volume  %d%%\n", hazerVolPct());    break;
+    case PG_FAN:      Serial.printf("Page: fan  %d%%\n", hazerFanPct());       break;
+    default:          Serial.println("Page: main");                           break;
+  }
+}
+
 static void printScreen() {
   const char *l1, *l2, *info;
   uiPanelText(&l1, &l2, &info);
@@ -176,7 +186,7 @@ static void opLoop(uint32_t now) {
       RadioStatus rs = radioGetStatus(i);
       if (!rs.linkUp || (rs.flags & HZ_FLAG_BUSY)) done = false;
     }
-    if (done || now - opStart > 2000) {
+    if (done || (int32_t)(now - opStart) > 2000) {   // signed: opStart can be newer than now
       Serial.printf("%s %s\n", targetName(takeMask), done ? "control taken" : "- no response");
       takeMask = 0;
     }
@@ -190,7 +200,7 @@ static void opLoop(uint32_t now) {
       RadioStatus rs = radioGetStatus(i);
       if (!rs.linkUp || !(rs.flags & HZ_FLAG_CONFIG)) all = false;
     }
-    if (all || now - opStart > 4000) {
+    if (all || (int32_t)(now - opStart) > 4000) {
       cfgActive = false;
       if (all) Serial.println("Receiver(s) in setup mode: join WiFi Hazer-RX-Setup-..., open 192.168.4.1");
       else     Serial.println("! The receiver did not confirm setup mode");
@@ -240,15 +250,15 @@ static void run(char* cmdline) {
   if (eq(c, "fan"))      { if (inRange("fan", a, 1, 100, &v))      { hazerSetPageValue(PG_FAN, v);      Serial.printf("Fan %d%%\n", v); } return; }
   if (eq(c, "interval")) { if (inRange("interval", a, 0, 200, &v)) { hazerSetPageValue(PG_INTERVAL, v); Serial.printf("Interval %ds\n", v); } return; }
   if (eq(c, "duration")) { if (inRange("duration", a, 0, 200, &v)) { hazerSetPageValue(PG_DURATION, v); Serial.printf("Duration %ds\n", v); } return; }
-  if (eq(c, "function")) { hazerButtonDown(0); Serial.printf("Page: %s\n", PAGE_NAMES[hazerPage()]); return; }
+  if (eq(c, "function")) { hazerButtonDown(0); printPage(); return; }
   if (eq(c, "up") || eq(c, "down")) {
     hazerAdjust(eq(c, "up") ? +1 : -1);
-    printScreen();
+    printPage();
     return;
   }
   if (eq(c, "page")) {
     for (int p = 0; p < PG_COUNT; p++)
-      if (eq(a, PAGE_NAMES[p])) { hazerSetPage(p); Serial.printf("Page: %s\n", PAGE_NAMES[p]); return; }
+      if (eq(a, PAGE_NAMES[p])) { hazerSetPage(p); printPage(); return; }
     Serial.println("! page main|interval|duration|volume|fan");
     return;
   }
