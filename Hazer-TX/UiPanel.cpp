@@ -10,6 +10,7 @@
 #include "Radio.h"
 #include "FixtureTable.h"
 #include "UiPanel.h"
+#include "Theme.h"
 
 // ---------------- layout ----------------
 static const int BX[3] = {8, 112, 216};
@@ -74,7 +75,7 @@ UiResult uiPanelUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
     if (heldBtn >= 0) hazerButtonUp(heldBtn);
     heldBtn = hit;
     if (hit >= 0) { hazerButtonDown(hit); nextRepeat = now + 450; holdStart = now; }
-  } else if ((hit == 1 || hit == 2) && hazerPage() != PG_RECEIVER && now >= nextRepeat) {
+  } else if ((hit == 1 || hit == 2) && hazerPage() != PG_RECEIVER && hazerPage() != PG_DISPLAY && now >= nextRepeat) {
     int step = (hazerDmxPageRx() >= 0 && now - holdStart > 2000) ? 10 : 1;   // speed up long holds
     hazerAdjust(hit == 1 ? +step : -step);
     nextRepeat = now + 100;
@@ -88,12 +89,12 @@ static void drawButtons(int pressed, uint8_t active) {
   lcd.setFont(&fonts::Font2);
   lcd.setTextDatum(textdatum_t::middle_center);
   for (int i = 0; i < 6; i++) {
-    uint16_t bg = (i == pressed) ? lcd.color565(80, 200, 80)
-                : (active & (1 << i)) ? lcd.color565(230, 140, 20)
-                : lcd.color565(60, 60, 70);
+    uint16_t bg = (i == pressed) ? theme().btnPressed
+                : (active & (1 << i)) ? theme().btnActive
+                : theme().btn;
     lcd.fillRoundRect(BX[i % 3], BY[i / 3], BW, BH, 8, bg);
-    lcd.drawRoundRect(BX[i % 3], BY[i / 3], BW, BH, 8, TFT_WHITE);
-    lcd.setTextColor(TFT_WHITE, bg);
+    lcd.drawRoundRect(BX[i % 3], BY[i / 3], BW, BH, 8, theme().border);
+    lcd.setTextColor(theme().text, bg);
     lcd.drawString(BL[i], BX[i % 3] + BW / 2, BY[i / 3] + BH / 2);
   }
 }
@@ -102,13 +103,13 @@ static void drawButtons(int pressed, uint8_t active) {
 static void drawMiniBars(int x, int y, int level, uint16_t bg) {
   for (int i = 0; i < 4; i++) {
     int h = 3 + i * 2;
-    uint16_t col = (i < level) ? lcd.color565(120, 255, 140) : lcd.color565(15, 60, 130);
+    uint16_t col = (i < level) ? theme().barOn : theme().barOff;
     lcd.fillRect(x + i * 4, y - h, 3, h, col);
   }
   if (level < 0) {
     for (int o = 0; o < 2; o++) {
-      lcd.drawLine(x + o, y - 9, x + 14 + o, y, TFT_RED);
-      lcd.drawLine(x + o, y, x + 14 + o, y - 9, TFT_RED);
+      lcd.drawLine(x + o, y - 9, x + 14 + o, y, theme().alert);
+      lcd.drawLine(x + o, y, x + 14 + o, y - 9, theme().alert);
     }
   }
 }
@@ -117,7 +118,7 @@ static void drawMiniBars(int x, int y, int level, uint16_t bg) {
 // The character after '#' is the signal level 0-4, a-e for the same in fail-safe
 // (orange text), or X for no link.
 static void drawInfoSegments(const char* info, uint16_t bg) {
-  const uint16_t okCol = lcd.color565(190, 215, 255), warnCol = lcd.color565(255, 190, 80);
+  const uint16_t okCol = theme().infoOk, warnCol = theme().warn;
   const char* SEP = " | ";
   char text[4][24]; int level[4]; bool warn[4]; int n = 0;
   for (const char* p = info; *p && n < 4; ) {
@@ -149,17 +150,17 @@ static void drawInfoSegments(const char* info, uint16_t bg) {
 }
 
 static void drawLcd(const char* l1, const char* l2, const char* info, bool out) {
-  uint16_t blue = lcd.color565(20, 90, 200);
+  uint16_t blue = theme().lcdBg;
   lcd.fillRoundRect(8, 8, 304, 88, 8, blue);
-  lcd.drawRoundRect(8, 8, 304, 88, 8, TFT_WHITE);
+  lcd.drawRoundRect(8, 8, 304, 88, 8, theme().border);
   lcd.setFont(&fonts::Font4);
   lcd.setTextDatum(textdatum_t::middle_center);
-  lcd.setTextColor(TFT_WHITE, blue);
+  lcd.setTextColor(theme().lcdText, blue);
   lcd.drawString(l1, 150, 26);
   lcd.drawString(l2, 160, 56);
   lcd.setFont(&fonts::Font2);
   drawInfoSegments(info, blue);
-  if (out) lcd.fillCircle(296, 22, 7, TFT_RED);
+  if (out) lcd.fillCircle(296, 22, 7, theme().alert);
 }
 
 static int rssiToBars(int rssi) {
@@ -177,8 +178,10 @@ static int     cPressed = -2;
 static uint8_t cActive = 255;
 
 void uiPanelRender(uint32_t now) {
+  static bool cDark = false;
+  if (themeDark() != cDark) { cDark = themeDark(); needFull = true; }   // palette changed
   if (needFull) {
-    lcd.fillScreen(TFT_BLACK);
+    lcd.fillScreen(theme().screenBg);
     c1[0] = c2[0] = cInfo[0] = 0;
     cPressed = -2; cActive = 255;
     needFull = false;
@@ -253,6 +256,10 @@ void uiPanelRender(uint32_t now) {
         snprintf(l2, sizeof(l2), "%s", TARGET_NAMES[hazerTargetMask() & 3]);
         break;
       }
+      case PG_DISPLAY:
+        snprintf(l1, sizeof(l1), "Display Set");
+        snprintf(l2, sizeof(l2), "%s", hazerDarkMode() ? "Dark" : "Normal");
+        break;
       default: {
         int b = hazerDmxEdit();
         snprintf(l1, sizeof(l1), "%s DMX Addr", RECEIVERS[hazerDmxPageRx()].name);

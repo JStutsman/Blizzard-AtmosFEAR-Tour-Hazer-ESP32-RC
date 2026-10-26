@@ -16,6 +16,7 @@
 #include "UiPanel.h"
 #include "UiConfig.h"
 #include "FixtureTable.h"
+#include "Theme.h"
 
 static uint8_t pctTo255(uint8_t pct) { return (uint8_t)(((uint16_t)pct * 255) / 100); }
 
@@ -48,6 +49,7 @@ void setup() {
   Serial.printf("\n[TX] Hazer-TX v%d.%d\n", FW_VERSION_MAJOR, FW_VERSION_MINOR);
   displayBegin();
   hazerBegin();
+  themeSetDark(hazerDarkMode());
   radioBegin();
   radioSetTargets(hazerTargetMask());
 }
@@ -68,6 +70,7 @@ void loop() {
 
   hazerUpdate(now);
   radioSetTargets(hazerTargetMask());
+  themeSetDark(hazerDarkMode());
   updateDmxBase(now);
 
   // Send the current control values at a fixed rate (paused while the config command is sent)

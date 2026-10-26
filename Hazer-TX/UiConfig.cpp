@@ -15,6 +15,7 @@
 #include "FixtureTable.h"
 #include "UiPanel.h"
 #include "UiConfig.h"
+#include "Theme.h"
 
 enum UcState { UC_OFF, UC_PIN, UC_CONFIRM, UC_SENDING, UC_RESULT, UC_DEBUG, UC_TAKE_CONFIRM, UC_TAKING, UC_TAKE_RESULT };
 
@@ -50,10 +51,10 @@ static void finish() {
 
 static void drawBtn(int x, int y, int w, int h, const char* label, uint16_t bg) {
   lcd.fillRoundRect(x, y, w, h, 8, bg);
-  lcd.drawRoundRect(x, y, w, h, 8, TFT_WHITE);
+  lcd.drawRoundRect(x, y, w, h, 8, theme().border);
   lcd.setFont(&fonts::Font4);
   lcd.setTextDatum(textdatum_t::middle_center);
-  lcd.setTextColor(TFT_WHITE, bg);
+  lcd.setTextColor(theme().text, bg);
   lcd.drawString(label, x + w / 2, y + h / 2);
 }
 
@@ -226,7 +227,7 @@ void uiConfigUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
 static void drawTitle(const char* t) {
   lcd.setFont(&fonts::Font4);
   lcd.setTextDatum(textdatum_t::middle_center);
-  lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+  lcd.setTextColor(theme().text, theme().screenBg);
   lcd.drawString(t, 160, 16);
 }
 
@@ -234,15 +235,15 @@ static void drawTitle(const char* t) {
 static void debugLine(int row, uint16_t col, const char* fmt, ...) {
   char buf[64];
   va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
-  lcd.setTextColor(col, TFT_BLACK);
+  lcd.setTextColor(col, theme().screenBg);
   lcd.drawString(buf, 6, 34 + row * 16);
 }
 
 extern const char* const BUILD_STAMP;     // BuildStamp.cpp: "Oct 26 2026 15:40:12"
 
 static void renderDebug(uint32_t now) {
-  const uint16_t W = TFT_WHITE, G = lcd.color565(150, 150, 160);
-  const uint16_t OK = lcd.color565(120, 255, 140), BAD = lcd.color565(255, 190, 80);
+  const uint16_t W = theme().text, G = theme().textDim;
+  const uint16_t OK = theme().barOn, BAD = theme().warn;
   lcd.setFont(&fonts::Font2);
   lcd.setTextDatum(textdatum_t::top_left);
   lcd.setTextPadding(308);
@@ -291,7 +292,7 @@ void uiConfigRender(uint32_t now) {
   }
   if (!dirty) return;
   dirty = false;
-  lcd.fillScreen(TFT_BLACK);
+  lcd.fillScreen(theme().screenBg);
 
   switch (st) {
     case UC_PIN: {
@@ -303,11 +304,11 @@ void uiConfigRender(uint32_t now) {
       drawTitle(title);
       for (int i = 0; i < 4; i++) {
         int cx = 124 + i * 24;
-        if (i < nEntered) lcd.fillCircle(cx, 42, 6, TFT_WHITE);
-        else              lcd.drawCircle(cx, 42, 6, TFT_WHITE);
+        if (i < nEntered) lcd.fillCircle(cx, 42, 6, theme().text);
+        else              lcd.drawCircle(cx, 42, 6, theme().text);
       }
       for (int i = 0; i < 12; i++) {
-        uint16_t bg = locked ? lcd.color565(40, 40, 45) : lcd.color565(60, 60, 70);
+        uint16_t bg = locked ? theme().btnLocked : theme().btn;
         drawBtn(10 + (i % 3) * 104, 58 + (i / 3) * 44, 96, 40, KEYS[i], bg);
       }
       break;
@@ -316,20 +317,20 @@ void uiConfigRender(uint32_t now) {
       drawTitle("Enter config mode?");
       lcd.setFont(&fonts::Font2);
       lcd.setTextDatum(textdatum_t::middle_center);
-      lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+      lcd.setTextColor(theme().text, theme().screenBg);
       lcd.drawString("The receiver will stop the haze", 160, 70);
       lcd.drawString("machine and start its setup WiFi.", 160, 92);
       lcd.drawString("It returns to normal after 10 min", 160, 114);
       lcd.drawString("without activity.", 160, 136);
-      drawBtn(10, 170, 140, 56, "CANCEL", lcd.color565(60, 60, 70));
-      drawBtn(170, 170, 140, 56, "CONFIRM", lcd.color565(30, 140, 60));
+      drawBtn(10, 170, 140, 56, "CANCEL", theme().btn);
+      drawBtn(170, 170, 140, 56, "CONFIRM", theme().btnConfirm);
       break;
     }
     case UC_SENDING: {
       drawTitle("Contacting receiver");
       lcd.setFont(&fonts::Font2);
       lcd.setTextDatum(textdatum_t::middle_center);
-      lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+      lcd.setTextColor(theme().text, theme().screenBg);
       lcd.drawString("Sending config command...", 160, 120);
       break;
     }
@@ -345,22 +346,22 @@ void uiConfigRender(uint32_t now) {
                           : mine ? "controlled by this remote" : "free";
         char line[48];
         snprintf(line, sizeof(line), "%s: %s", RECEIVERS[i].name, state);
-        lcd.setTextColor((rs.flags & HZ_FLAG_BUSY) && rs.linkUp ? lcd.color565(255, 190, 80) : TFT_WHITE, TFT_BLACK);
+        lcd.setTextColor((rs.flags & HZ_FLAG_BUSY) && rs.linkUp ? theme().warn : theme().text, theme().screenBg);
         lcd.drawString(line, 160, 44 + i * 20);
       }
-      lcd.setTextColor(lcd.color565(150, 150, 160), TFT_BLACK);
+      lcd.setTextColor(theme().textDim, theme().screenBg);
       lcd.drawString("This remote's haze settings apply at once.", 160, 94);
       static const char* TAKE_LABELS[3] = {"RX 1", "RX 2", "BOTH"};
       for (int b = 0; b < 3; b++)
-        drawBtn(TAKE_BX[b], TAKE_BY, TAKE_BW, TAKE_BH, TAKE_LABELS[b], lcd.color565(200, 110, 20));
-      drawBtn(10, 176, 300, 50, "CANCEL", lcd.color565(60, 60, 70));
+        drawBtn(TAKE_BX[b], TAKE_BY, TAKE_BW, TAKE_BH, TAKE_LABELS[b], theme().btnTake);
+      drawBtn(10, 176, 300, 50, "CANCEL", theme().btn);
       break;
     }
     case UC_TAKING:
       drawTitle("Taking control");
       lcd.setFont(&fonts::Font2);
       lcd.setTextDatum(textdatum_t::middle_center);
-      lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+      lcd.setTextColor(theme().text, theme().screenBg);
       lcd.drawString("Waiting for the receiver...", 160, 120);
       break;
     case UC_TAKE_RESULT: {
@@ -369,7 +370,7 @@ void uiConfigRender(uint32_t now) {
       drawTitle(resultOk ? "Control taken" : "No response");
       lcd.setFont(&fonts::Font2);
       lcd.setTextDatum(textdatum_t::middle_center);
-      lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+      lcd.setTextColor(theme().text, theme().screenBg);
       lcd.drawString(names, 160, 80);
       if (!resultOk) lcd.drawString("The receiver did not accept. Try again.", 160, 110);
       lcd.drawString("Tap to close", 160, 210);
@@ -380,14 +381,14 @@ void uiConfigRender(uint32_t now) {
       renderDebug(now);
       lcd.setFont(&fonts::Font2);
       lcd.setTextDatum(textdatum_t::middle_center);
-      lcd.setTextColor(lcd.color565(150, 150, 160), TFT_BLACK);
+      lcd.setTextColor(theme().textDim, theme().screenBg);
       lcd.drawString("Tap to close", 160, 230);
       break;
     case UC_RESULT: {
       drawTitle(resultOk ? "Receiver in config mode" : "No response");
       lcd.setFont(&fonts::Font2);
       lcd.setTextDatum(textdatum_t::middle_center);
-      lcd.setTextColor(TFT_WHITE, TFT_BLACK);
+      lcd.setTextColor(theme().text, theme().screenBg);
       if (resultOk) {
         lcd.drawString("Join the Hazer-RX-Setup WiFi network", 160, 80);
         lcd.drawString("then open  192.168.4.1", 160, 104);
