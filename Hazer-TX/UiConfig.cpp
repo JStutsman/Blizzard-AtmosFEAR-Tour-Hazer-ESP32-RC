@@ -7,6 +7,7 @@
 #include "Display.h"
 #include "HazerState.h"
 #include "Radio.h"
+#include "FixtureTable.h"
 #include "UiPanel.h"
 #include "UiConfig.h"
 
@@ -128,8 +129,13 @@ void uiConfigUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
       break;
     case UC_SENDING: {
       if (now - lastSend >= 100) { lastSend = now; radioSendCommand(HZ_CMD_ENTER_CONFIG, 0); }
-      RadioStatus rs = radioGetStatus();
-      if (rs.linkUp && (rs.flags & HZ_FLAG_CONFIG)) {
+      bool allInConfig = true;                          // every selected receiver confirmed
+      for (int i = 0; i < RECEIVER_COUNT; i++) {
+        if (!(radioTargets() & (1 << i))) continue;
+        RadioStatus rs = radioGetStatus(i);
+        if (!rs.linkUp || !(rs.flags & HZ_FLAG_CONFIG)) allInConfig = false;
+      }
+      if (allInConfig) {
         resultOk = true; st = UC_RESULT; stateStart = now; dirty = true;
       } else if (now - stateStart > 4000) {
         resultOk = false; st = UC_RESULT; stateStart = now; dirty = true;

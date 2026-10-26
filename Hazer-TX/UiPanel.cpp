@@ -8,6 +8,7 @@
 #include "Display.h"
 #include "HazerState.h"
 #include "Radio.h"
+#include "FixtureTable.h"
 #include "UiPanel.h"
 
 // ---------------- layout ----------------
@@ -69,7 +70,7 @@ UiResult uiPanelUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
     if (heldBtn >= 0) hazerButtonUp(heldBtn);
     heldBtn = hit;
     if (hit >= 0) { hazerButtonDown(hit); nextRepeat = now + 450; }
-  } else if ((hit == 1 || hit == 2) && now >= nextRepeat) {
+  } else if ((hit == 1 || hit == 2) && hazerPage() != PG_RECEIVER && now >= nextRepeat) {
     hazerAdjust(hit == 1 ? +1 : -1);
     nextRepeat = now + 100;
   }
@@ -138,12 +139,36 @@ void uiPanelRender(uint32_t now) {
     needFull = false;
   }
 
-  RadioStatus rs = radioGetStatus();
+  // combine the status of the selected receivers
+  uint8_t     mask = radioTargets();
+  RadioStatus rs[RECEIVER_COUNT];
+  int  nSel = 0, firstSel = -1, nLinked = 0, missing = -1;
+  bool anyConfig = false, anyFailsafe = false;
+  for (int i = 0; i < RECEIVER_COUNT; i++) {
+    rs[i] = radioGetStatus(i);
+    if (!(mask & (1 << i))) continue;
+    nSel++;
+    if (firstSel < 0) firstSel = i;
+    if (rs[i].linkUp) {
+      nLinked++;
+      if (rs[i].flags & HZ_FLAG_CONFIG)   anyConfig = true;
+      if (rs[i].flags & HZ_FLAG_FAILSAFE) anyFailsafe = true;
+    } else {
+      missing = i;
+    }
+  }
+  bool linkUp = nSel > 0 && nLinked == nSel;
 
   // numeric RSSI is sampled once a second so the display doesn't flicker
   static uint32_t lastSample = 0;
-  static int shownRssi = -127;
-  if (now - lastSample >= 1000) { lastSample = now; shownRssi = rs.linkUp ? rs.rssi : -127; }
+  static int shownRssi[RECEIVER_COUNT];
+  if (now - lastSample >= 1000) {
+    lastSample = now;
+    for (int i = 0; i < RECEIVER_COUNT; i++) shownRssi[i] = rs[i].linkUp ? rs[i].rssi : -127;
+  }
+  int weakest = 0;                         // weakest selected link drives the bars
+  for (int i = 0; i < RECEIVER_COUNT; i++)
+    if ((mask & (1 << i)) && (weakest == 0 || shownRssi[i] < weakest)) weakest = shownRssi[i];
 
   char l1[28], l2[36], info[48];
   info[0] = 0;
@@ -156,13 +181,15 @@ void uiPanelRender(uint32_t now) {
     if (err) {
       snprintf(l1, sizeof(l1), "Radio Error");
       snprintf(l2, sizeof(l2), "%s", err);
-    } else if (!rs.linkUp) {
+    } else if (!linkUp) {
       snprintf(l1, sizeof(l1), "No Link");
-      snprintf(l2, sizeof(l2), "Searching for receiver");
-    } else if (rs.flags & HZ_FLAG_CONFIG) {
+      if (nSel > 1 && nLinked > 0) snprintf(l2, sizeof(l2), "Searching for %s", RECEIVERS[missing].name);
+      else if (nSel > 1)           snprintf(l2, sizeof(l2), "Searching for receivers");
+      else                         snprintf(l2, sizeof(l2), "Searching for receiver");
+    } else if (anyConfig) {
       snprintf(l1, sizeof(l1), "Rx Config Mode");
       snprintf(l2, sizeof(l2), "Haze disabled");
-    } else if (rs.flags & HZ_FLAG_FAILSAFE) {
+    } else if (anyFailsafe) {
       snprintf(l1, sizeof(l1), "Rx Fail-safe");
       snprintf(l2, sizeof(l2), "Waiting for data");
     } else if (hazerManualHeld()) {
@@ -180,29 +207,47 @@ void uiPanelRender(uint32_t now) {
       case PG_INTERVAL: snprintf(l1, sizeof(l1), "Interval Set"); snprintf(l2, sizeof(l2), "%d s", hazerInterval()); break;
       case PG_DURATION: snprintf(l1, sizeof(l1), "Duration Set"); snprintf(l2, sizeof(l2), "%d s", hazerDuration()); break;
       case PG_VOLUME:   snprintf(l1, sizeof(l1), "Volume Set");   snprintf(l2, sizeof(l2), "%d%%", hazerVolPct()); break;
-      default:          snprintf(l1, sizeof(l1), "FanSpeed Set"); snprintf(l2, sizeof(l2), "%d%%", hazerFanPct()); break;
+      case PG_FAN:      snprintf(l1, sizeof(l1), "FanSpeed Set"); snprintf(l2, sizeof(l2), "%d%%", hazerFanPct()); break;
+      default: {
+        static const char* TARGET_NAMES[] = {"", "RX 1", "RX 2", "RX 1 + 2"};
+        snprintf(l1, sizeof(l1), "Receiver Set");
+        snprintf(l2, sizeof(l2), "%s", TARGET_NAMES[hazerTargetMask() & 3]);
+        break;
+      }
     }
   }
 
   // info line: receiver version, signal, value echo, fail-safe flag
-  if (rs.linkUp) {
-    int echoE = rs.echo[HZV_EMIT] >= 128 ? 1 : 0;
-    int echoF = (rs.echo[HZV_FAN] * 100 + 127) / 255;
-    int echoV = (rs.echo[HZV_VOL] * 100 + 127) / 255;
-    if (rs.flags & HZ_FLAG_FAILSAFE) {
-      snprintf(info, sizeof(info), "FAILSAFE  RX v%u.%u  %ddBm", rs.fwMajor, rs.fwMinor, shownRssi);
+  if (nSel == 1) {
+    const RadioStatus& r = rs[firstSel];
+    const char* name = RECEIVERS[firstSel].name;
+    if (!r.linkUp) {
+      snprintf(info, sizeof(info), "%s: no link", name);
+      infoRed = true;
+    } else if (r.flags & HZ_FLAG_FAILSAFE) {
+      snprintf(info, sizeof(info), "FAILSAFE  %s v%u.%u  %ddBm", name, r.fwMajor, r.fwMinor, shownRssi[firstSel]);
       infoRed = true;
     } else {
-      snprintf(info, sizeof(info), "RX v%u.%u %ddBm  Echo E%d F%d V%d",
-               rs.fwMajor, rs.fwMinor, shownRssi, echoE, echoF, echoV);
+      int echoE = r.echo[HZV_EMIT] >= 128 ? 1 : 0;
+      int echoF = (r.echo[HZV_FAN] * 100 + 127) / 255;
+      int echoV = (r.echo[HZV_VOL] * 100 + 127) / 255;
+      snprintf(info, sizeof(info), "%s v%u.%u %ddBm  Echo E%d F%d V%d",
+               name, r.fwMajor, r.fwMinor, shownRssi[firstSel], echoE, echoF, echoV);
     }
-  } else {
-    snprintf(info, sizeof(info), "RX: no link");
-    infoRed = true;
+  } else {                                 // several receivers: one short entry each
+    size_t n = 0;
+    for (int i = 0; i < RECEIVER_COUNT && n < sizeof(info); i++) {
+      if (!(mask & (1 << i))) continue;
+      const char* name = RECEIVERS[i].name;
+      if (!rs[i].linkUp)                       n += snprintf(info + n, sizeof(info) - n, "%s no link  ", name);
+      else if (rs[i].flags & HZ_FLAG_FAILSAFE) n += snprintf(info + n, sizeof(info) - n, "%s FS %ddBm  ", name, shownRssi[i]);
+      else                                     n += snprintf(info + n, sizeof(info) - n, "%s %ddBm  ", name, shownRssi[i]);
+    }
+    infoRed = !linkUp || anyFailsafe;
   }
 
-  bool out = hazerEmit() && rs.linkUp;
-  int bars = rs.linkUp ? rssiToBars(shownRssi) : 0;
+  bool out = hazerEmit() && linkUp;
+  int bars = linkUp ? rssiToBars(weakest) : 0;
 
   uint8_t active = 0;
   if (hazerTimerActive())  active |= (1 << 3);

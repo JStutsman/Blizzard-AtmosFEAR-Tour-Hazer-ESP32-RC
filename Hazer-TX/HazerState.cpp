@@ -14,6 +14,7 @@ static int      mode = HM_IDLE;
 static int      page = PG_MAIN;
 static int      interval = 30, duration = 5;     // seconds, 0-200
 static int      volPct = 50, fanPct = 50;        // 1-100
+static int      target = 1;                      // receiver mask 1-3 (RX1, RX2, both)
 static bool     manualHeld = false;
 static bool     dirty = false;
 static int      timerPhase = 0;                  // 0 = interval wait, 1 = hazing
@@ -24,6 +25,7 @@ static void saveSettings() {
   prefs.putInt("duration", duration);
   prefs.putInt("vol", volPct);
   prefs.putInt("fan", fanPct);
+  prefs.putInt("target", target);
   dirty = false;
 }
 
@@ -33,10 +35,12 @@ void hazerBegin() {
   duration = prefs.getInt("duration", 5);
   volPct   = prefs.getInt("vol", 50);
   fanPct   = prefs.getInt("fan", 50);
+  target   = prefs.getInt("target", 1);
   interval = constrain(interval, 0, 200);
   duration = constrain(duration, 0, 200);
   volPct   = constrain(volPct, 1, 100);
   fanPct   = constrain(fanPct, 1, 100);
+  target   = constrain(target, 1, 3);
 }
 
 void hazerAdjust(int d) {
@@ -45,6 +49,7 @@ void hazerAdjust(int d) {
     case PG_DURATION: duration = constrain(duration + d, 0, 200); break;
     case PG_VOLUME:   volPct   = constrain(volPct + d, 1, 100);   break;
     case PG_FAN:      fanPct   = constrain(fanPct + d, 1, 100);   break;
+    case PG_RECEIVER: target   = (target - 1 + (d > 0 ? 1 : 2)) % 3 + 1; break;   // wraps
     default: return;
   }
   dirty = true;
@@ -103,6 +108,7 @@ bool    hazerTimerActive()   { return mode == HM_TIMER; }
 bool    hazerOnActive()      { return mode == HM_ON; }
 bool    hazerManualHeld()    { return manualHeld; }
 int     hazerTimerPhase()    { return timerPhase; }
+uint8_t hazerTargetMask()    { return (uint8_t)target; }
 long hazerTimerRemaining(uint32_t now) {
   long rem = ((long)(phaseEnd - now) + 999) / 1000;
   return rem < 0 ? 0 : rem;

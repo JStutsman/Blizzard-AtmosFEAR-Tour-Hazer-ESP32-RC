@@ -1,4 +1,4 @@
-// Radio.h  (Hazer-TX) - ESP-NOW link to the receiver
+// Radio.h  (Hazer-TX) - ESP-NOW link to the receivers
 #pragma once
 #include <Arduino.h>
 
@@ -15,6 +15,8 @@ struct RadioStatus {
 
 void        radioBegin();
 const char* radioError();                       // nullptr if OK, else a short message
-void        radioSendData(const uint8_t* values, uint8_t count);
-void        radioSendCommand(uint8_t cmd, uint16_t arg);
-RadioStatus radioGetStatus();
+void        radioSetTargets(uint8_t mask);      // bit i = RECEIVERS[i]; dropped receivers get SAFE
+uint8_t     radioTargets();
+void        radioSendData(const uint8_t* values, uint8_t count);   // to all targets
+void        radioSendCommand(uint8_t cmd, uint16_t arg);           // to all targets
+RadioStatus radioGetStatus(int rx);             // one receiver (index into RECEIVERS)

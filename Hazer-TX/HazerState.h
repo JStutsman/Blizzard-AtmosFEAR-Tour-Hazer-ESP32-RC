@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 // Menu pages, in the order FUNCTION cycles through them (same names as the machine)
-enum { PG_MAIN, PG_INTERVAL, PG_DURATION, PG_VOLUME, PG_FAN, PG_COUNT };
+enum { PG_MAIN, PG_INTERVAL, PG_DURATION, PG_VOLUME, PG_FAN, PG_RECEIVER, PG_COUNT };
 
 void     hazerBegin();                    // load saved settings
 void     hazerButtonDown(int b);          // 0 FUNCTION, 1 UP, 2 DOWN, 3 TIMER, 4 START/STOP, 5 MANUAL
@@ -24,3 +24,4 @@ bool     hazerOnActive();                 // START/STOP latched on
 bool     hazerManualHeld();
 int      hazerTimerPhase();               // 0 = waiting, 1 = hazing
 long     hazerTimerRemaining(uint32_t now); // seconds left in current phase
+uint8_t  hazerTargetMask();               // receivers to control: 1 = RX1, 2 = RX2, 3 = both

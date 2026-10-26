@@ -24,6 +24,7 @@ void setup() {
   displayBegin();
   hazerBegin();
   radioBegin();
+  radioSetTargets(hazerTargetMask());
 }
 
 void loop() {
@@ -39,6 +40,7 @@ void loop() {
   }
 
   hazerUpdate(now);
+  radioSetTargets(hazerTargetMask());
 
   // Send the current control values at a fixed rate (paused while the config command is sent)
   static uint32_t nextSend = 0;

@@ -19,9 +19,7 @@
 // monitor at boot, and shown on its config page).
 #define RX_MAC_RECEIVER_1  {0xE8, 0x3D, 0xC1, 0x81, 0xF2, 0xF8}  // E8:3D:C1:81:F2:F8
 #define RX_MAC_RECEIVER_2  {0xE8, 0x3D, 0xC1, 0x83, 0x83, 0xF0}  // E8:3D:C1:83:83:F0
-
-// The receiver this remote talks to.
-#define RX_MAC_BYTES  RX_MAC_RECEIVER_1
+// Which of them the remote controls is picked on the "Receiver Set" menu page.
 
 // ---------------- config-mode access ----------------
 #define HZ_CONFIG_PIN       "4817"  // 4-digit PIN to send the receiver into config mode
