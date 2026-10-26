@@ -23,6 +23,7 @@
 
 // ---------------- config-mode access ----------------
 #define HZ_CONFIG_PIN       "4817"  // 4-digit PIN to send the receiver into config mode
+#define HZ_DEBUG_PIN        "1234"  // same keypad: opens the debug/info screen
 #define PIN_LOCKOUT_TRIES   3       // wrong tries before lockout
 #define PIN_LOCKOUT_MS      5000    // lockout length
 #define CONFIG_HOLD_MS      2000    // hold the blue LCD area this long to open PIN entry

@@ -1,7 +1,10 @@
 // UiConfig.cpp  (Hazer-TX)
 // Flow: hidden long-press -> 4-digit PIN (lockout after 3 wrong tries) -> confirm
 // -> stop haze and send ENTER_CONFIG until the receiver reports config mode.
+// HZ_DEBUG_PIN on the same keypad opens a live debug/info screen instead
+// (RSSI shown as "here/at RX": reply strength at the remote / our packets at the receiver).
 #include <Arduino.h>
+#include <esp_wifi.h>
 #include "Config.h"
 #include "HazerProtocol.h"
 #include "Display.h"
@@ -11,7 +14,7 @@
 #include "UiPanel.h"
 #include "UiConfig.h"
 
-enum UcState { UC_OFF, UC_PIN, UC_CONFIRM, UC_SENDING, UC_RESULT };
+enum UcState { UC_OFF, UC_PIN, UC_CONFIRM, UC_SENDING, UC_RESULT, UC_DEBUG };
 
 static UcState  st = UC_OFF;
 static bool     dirty = false;
@@ -25,6 +28,7 @@ static int      lastLockSec = -1;
 static uint32_t lastAct = 0, stateStart = 0, lastSend = 0;
 static bool     resultOk = false;
 static const char* pinMsg = "";
+static bool     debugRefresh = false;      // redraw the debug values without clearing the screen
 
 // ---------------- keypad layout ----------------
 static const char* KEYS[12] = {"1","2","3","4","5","6","7","8","9","CLR","0","BACK"};
@@ -79,6 +83,9 @@ static void handlePinKey(int k, uint32_t now) {
       wrongTries = 0;
       pinMsg = "";
       st = UC_CONFIRM;
+    } else if (strcmp(entered, HZ_DEBUG_PIN) == 0) {
+      pinMsg = "";
+      st = UC_DEBUG;
     } else {
       wrongTries++;
       pinMsg = "Wrong PIN";
@@ -145,6 +152,10 @@ void uiConfigUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
     case UC_RESULT:
       if (tap || now - stateStart > 8000) finish();
       break;
+    case UC_DEBUG:
+      if (tap) { finish(); return; }
+      if (now - lastSend >= 500) { lastSend = now; debugRefresh = true; }   // live values
+      break;
     default:
       break;
   }
@@ -158,7 +169,62 @@ static void drawTitle(const char* t) {
   lcd.drawString(t, 160, 16);
 }
 
+// one left-aligned debug line; padding overwrites the previous text without a full clear
+static void debugLine(int row, uint16_t col, const char* fmt, ...) {
+  char buf[64];
+  va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
+  lcd.setTextColor(col, TFT_BLACK);
+  lcd.drawString(buf, 6, 34 + row * 16);
+}
+
+static void renderDebug(uint32_t now) {
+  const uint16_t W = TFT_WHITE, G = lcd.color565(150, 150, 160);
+  const uint16_t OK = lcd.color565(120, 255, 140), BAD = lcd.color565(255, 190, 80);
+  lcd.setFont(&fonts::Font2);
+  lcd.setTextDatum(textdatum_t::top_left);
+  lcd.setTextPadding(308);
+
+  uint8_t own[6];
+  esp_wifi_get_mac(WIFI_IF_STA, own);
+  uint32_t up = now / 1000;
+  uint8_t mask = radioTargets();
+  const char* err = radioError();
+  debugLine(0, W, "TX v%d.%d  %02X:%02X:%02X:%02X:%02X:%02X  ch %d", FW_VERSION_MAJOR, FW_VERSION_MINOR,
+            own[0], own[1], own[2], own[3], own[4], own[5], RADIO_CHANNEL);
+  debugLine(1, G, "Up %lu:%02lu:%02lu  Heap %uk  Send %s%s%s", up / 3600, (up / 60) % 60, up % 60,
+            ESP.getFreeHeap() / 1024, (mask & 1) ? "RX1 " : "", (mask & 2) ? "RX2 " : "", err ? err : "");
+  debugLine(2, G, "Out  Emit %d  Fan %d%%  Vol %d%%  every %dms", hazerEmit() ? 1 : 0,
+            hazerFanPct(), hazerVolPct(), SEND_INTERVAL_MS);
+
+  for (int i = 0; i < RECEIVER_COUNT && i < 3; i++) {
+    int row = 3 + i * 4;
+    const uint8_t* m = RECEIVERS[i].mac;
+    RadioStatus r = radioGetStatus(i);
+    bool sel = mask & (1 << i);
+    debugLine(row, W, "%s  %02X:%02X:%02X:%02X:%02X:%02X  %s", RECEIVERS[i].name,
+              m[0], m[1], m[2], m[3], m[4], m[5], sel ? "[selected]" : "");
+    if (r.ageMs == 0xFFFFFFFFUL) {
+      debugLine(row + 1, BAD, "  never heard from");
+      debugLine(row + 2, G, "");
+    } else {
+      debugLine(row + 1, r.linkUp ? OK : BAD, "  %s  v%u.%u  base %u  last %lums",
+                r.linkUp ? "LINK UP" : "NO LINK", r.fwMajor, r.fwMinor, r.base, r.ageMs);
+      debugLine(row + 2, G, "  RSSI %d/%d dBm  Echo E%d F%d V%d%s%s%s",
+                r.rssi, r.rxRssi, r.echo[HZV_EMIT] >= 128 ? 1 : 0,
+                (r.echo[HZV_FAN] * 100 + 127) / 255, (r.echo[HZV_VOL] * 100 + 127) / 255,
+                (r.flags & HZ_FLAG_FAILSAFE) ? " FS" : "", (r.flags & HZ_FLAG_CONFIG) ? " CFG" : "",
+                (r.flags & HZ_FLAG_IDENTIFY) ? " ID" : "");
+    }
+  }
+  lcd.setTextPadding(0);
+}
+
 void uiConfigRender(uint32_t now) {
+  if (st == UC_DEBUG && debugRefresh && !dirty) {
+    debugRefresh = false;
+    renderDebug(now);
+    return;
+  }
   if (!dirty) return;
   dirty = false;
   lcd.fillScreen(TFT_BLACK);
@@ -203,6 +269,14 @@ void uiConfigRender(uint32_t now) {
       lcd.drawString("Sending config command...", 160, 120);
       break;
     }
+    case UC_DEBUG:
+      drawTitle("Debug Info");
+      renderDebug(now);
+      lcd.setFont(&fonts::Font2);
+      lcd.setTextDatum(textdatum_t::middle_center);
+      lcd.setTextColor(lcd.color565(150, 150, 160), TFT_BLACK);
+      lcd.drawString("Tap to close", 160, 230);
+      break;
     case UC_RESULT: {
       drawTitle(resultOk ? "Receiver in config mode" : "No response");
       lcd.setFont(&fonts::Font2);
