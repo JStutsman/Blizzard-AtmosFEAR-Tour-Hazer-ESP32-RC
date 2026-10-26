@@ -19,36 +19,28 @@
 
 static uint8_t pctTo255(uint8_t pct) { return (uint8_t)(((uint16_t)pct * 255) / 100); }
 
-// DMX address page: load the receiver's address, and after an edit send SET_BASE
-// until every selected receiver that is linked reports the new address (max 3 s).
+// DMX address pages: show the receiver's current address until one is set here, and
+// keep every receiver that is answering on the address set for it. A receiver that
+// missed the change (off or out of range) gets it as soon as it reports again.
 static void updateDmxBase(uint32_t now) {
-  static int      pendingBase = 0;
-  static uint32_t pendingUntil = 0, lastSend = 0;
+  static uint32_t lastSend = 0;
 
-  if (hazerPage() == PG_DMX && hazerDmxBase() < 0) {
-    for (int i = 0; i < RECEIVER_COUNT; i++) {
-      if (!(radioTargets() & (1 << i))) continue;
-      RadioStatus rs = radioGetStatus(i);
-      if (rs.linkUp) { hazerLoadDmxBase(rs.base); break; }
+  int rx = hazerDmxPageRx();
+  if (rx >= 0 && hazerDmxEdit() < 0) {
+    RadioStatus rs = radioGetStatus(rx);
+    if (rs.linkUp) hazerLoadDmxBase(rs.base);
+  }
+
+  if (now - lastSend < 200) return;
+  lastSend = now;
+  for (int i = 0; i < RECEIVER_COUNT && i < DMX_PAGE_COUNT; i++) {
+    int want = hazerDmxWanted(i);
+    RadioStatus rs = radioGetStatus(i);
+    if (want && rs.linkUp && rs.base != want) {
+      radioSendCommandTo(i, HZ_CMD_SET_BASE, want);
+      Serial.printf("[TX] %s DMX base %u -> %d\n", RECEIVERS[i].name, rs.base, want);
     }
   }
-
-  int b;
-  if (hazerTakeDmxCommit(&b)) { pendingBase = b; pendingUntil = now + 3000; lastSend = 0; }
-  if (!pendingBase) return;
-
-  bool done = true;
-  for (int i = 0; i < RECEIVER_COUNT; i++) {
-    if (!(radioTargets() & (1 << i))) continue;
-    RadioStatus rs = radioGetStatus(i);
-    if (rs.linkUp && rs.base != pendingBase) done = false;
-  }
-  if (done || (int32_t)(now - pendingUntil) >= 0) {
-    Serial.printf("[TX] DMX base %d %s\n", pendingBase, done ? "confirmed" : "not confirmed (timeout)");
-    pendingBase = 0;
-    return;
-  }
-  if (now - lastSend >= 100) { lastSend = now; radioSendCommand(HZ_CMD_SET_BASE, pendingBase); }
 }
 
 void setup() {

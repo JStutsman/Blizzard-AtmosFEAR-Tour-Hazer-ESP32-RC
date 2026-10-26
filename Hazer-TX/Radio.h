@@ -19,4 +19,5 @@ void        radioSetTargets(uint8_t mask);      // bit i = RECEIVERS[i]; dropped
 uint8_t     radioTargets();
 void        radioSendData(const uint8_t* values, uint8_t count);   // to all targets
 void        radioSendCommand(uint8_t cmd, uint16_t arg);           // to all targets
+void        radioSendCommandTo(int rx, uint8_t cmd, uint16_t arg); // to one receiver
 RadioStatus radioGetStatus(int rx);             // one receiver (index into RECEIVERS)

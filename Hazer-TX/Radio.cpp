@@ -94,6 +94,10 @@ void radioSendCommand(uint8_t cmd, uint16_t arg) {
   sendPacket(targets, cmd, nullptr, 0, arg);
 }
 
+void radioSendCommandTo(int rx, uint8_t cmd, uint16_t arg) {
+  sendPacket(1 << rx, cmd, nullptr, 0, arg);
+}
+
 RadioStatus radioGetStatus(int rx) {
   RadioStatus r = {};
   uint32_t now = millis();

@@ -71,7 +71,7 @@ UiResult uiPanelUpdate(bool touched, int32_t tx, int32_t ty, uint32_t now) {
     heldBtn = hit;
     if (hit >= 0) { hazerButtonDown(hit); nextRepeat = now + 450; holdStart = now; }
   } else if ((hit == 1 || hit == 2) && hazerPage() != PG_RECEIVER && now >= nextRepeat) {
-    int step = (hazerPage() == PG_DMX && now - holdStart > 2000) ? 10 : 1;   // speed up long holds
+    int step = (hazerDmxPageRx() >= 0 && now - holdStart > 2000) ? 10 : 1;   // speed up long holds
     hazerAdjust(hit == 1 ? +step : -step);
     nextRepeat = now + 100;
   }
@@ -110,17 +110,19 @@ static void drawMiniBars(int x, int y, int level, uint16_t bg) {
 }
 
 // Info line, one entry per selected receiver: "RX1 -57dBm#3|RX2 No link#X".
-// The character after '#' is the signal level 0-4, or X for no link.
+// The character after '#' is the signal level 0-4, a-e for the same in fail-safe
+// (orange text), or X for no link.
 static void drawInfoSegments(const char* info, uint16_t bg) {
   const uint16_t okCol = lcd.color565(190, 215, 255), warnCol = lcd.color565(255, 190, 80);
-  const char* SEP = "  |  ";
-  char text[4][24]; int level[4]; int n = 0;
+  const char* SEP = " | ";
+  char text[4][24]; int level[4]; bool warn[4]; int n = 0;
   for (const char* p = info; *p && n < 4; ) {
     const char* hash = strchr(p, '#');
     if (!hash || !hash[1]) break;
     int len = min((int)(hash - p), 23);
     memcpy(text[n], p, len); text[n][len] = 0;
-    level[n] = hash[1] == 'X' ? -1 : hash[1] - '0';
+    warn[n]  = hash[1] == 'X' || hash[1] >= 'a';
+    level[n] = hash[1] == 'X' ? -1 : hash[1] >= 'a' ? hash[1] - 'a' : hash[1] - '0';
     n++;
     p = hash + 2;
     if (*p == '|') p++;
@@ -133,8 +135,7 @@ static void drawInfoSegments(const char* info, uint16_t bg) {
   int x = 160 - total / 2;
   for (int i = 0; i < n; i++) {
     if (i > 0) { lcd.setTextColor(okCol, bg); lcd.drawString(SEP, x, 83); x += lcd.textWidth(SEP); }
-    bool warn = level[i] < 0 || strstr(text[i], " FS");
-    lcd.setTextColor(warn ? warnCol : okCol, bg);
+    lcd.setTextColor(warn[i] ? warnCol : okCol, bg);
     lcd.drawString(text[i], x, 83);
     x += lcd.textWidth(text[i]) + 4;
     drawMiniBars(x, 88, level[i], bg);
@@ -244,8 +245,8 @@ void uiPanelRender(uint32_t now) {
         break;
       }
       default: {
-        int b = hazerDmxBase();
-        snprintf(l1, sizeof(l1), "DMX Addr Set");
+        int b = hazerDmxEdit();
+        snprintf(l1, sizeof(l1), "%s DMX Addr", RECEIVERS[hazerDmxPageRx()].name);
         if (b < 0) snprintf(l2, sizeof(l2), "Waiting for RX");
         else       snprintf(l2, sizeof(l2), "%d  (ch %d-%d)", b, b, b + HZ_HAZER_VALUES - 1);
         break;
@@ -253,16 +254,19 @@ void uiPanelRender(uint32_t now) {
     }
   }
 
-  // info line: "RX1 -57dBm [bars] | RX2 No link [X]"
+  // info line: "RX1 Ch89 -57dBm [bars] | RX2 Ch109 No link [X]" (fail-safe = orange text)
   size_t n = 0;
   info[0] = 0;
   for (int i = 0; i < RECEIVER_COUNT && n < sizeof(info); i++) {
     if (!(mask & (1 << i))) continue;
     const char* name = RECEIVERS[i].name;
     const char* sep  = n > 0 ? "|" : "";
-    if (!rs[i].linkUp)                       n += snprintf(info + n, sizeof(info) - n, "%s%s No link#X", sep, name);
-    else if (rs[i].flags & HZ_FLAG_FAILSAFE) n += snprintf(info + n, sizeof(info) - n, "%s%s FS %ddBm#%d", sep, name, shownRssi[i], rssiToBars(shownRssi[i]));
-    else                                     n += snprintf(info + n, sizeof(info) - n, "%s%s %ddBm#%d", sep, name, shownRssi[i], rssiToBars(shownRssi[i]));
+    int  base = hazerDmxWanted(i) ? hazerDmxWanted(i) : rs[i].base;   // 0 = unknown
+    char ch[10] = "";
+    if (base) snprintf(ch, sizeof(ch), " Ch%d", base);
+    if (!rs[i].linkUp)                       n += snprintf(info + n, sizeof(info) - n, "%s%s%s No link#X", sep, name, ch);
+    else if (rs[i].flags & HZ_FLAG_FAILSAFE) n += snprintf(info + n, sizeof(info) - n, "%s%s%s %ddBm#%c", sep, name, ch, shownRssi[i], 'a' + rssiToBars(shownRssi[i]));
+    else                                     n += snprintf(info + n, sizeof(info) - n, "%s%s%s %ddBm#%d", sep, name, ch, shownRssi[i], rssiToBars(shownRssi[i]));
   }
 
   bool out = hazerEmit() && nLinked > 0;
