@@ -15,9 +15,13 @@
 #define SEND_INTERVAL_MS   50      // data packet rate (20 Hz)
 #define LINK_TIMEOUT_MS    1500    // "No Link" if no status reply for this long
 
-// MAC address of the Hazer-RX receiver. FILL IN (printed on the receiver's serial
+// MAC addresses of the Hazer-RX receivers (printed on the receiver's serial
 // monitor at boot, and shown on its config page).
-#define RX_MAC_BYTES  {0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+#define RX_MAC_RECEIVER_1  {0xE8, 0x3D, 0xC1, 0x81, 0xF2, 0xF8}  // E8:3D:C1:81:F2:F8
+#define RX_MAC_RECEIVER_2  {0xE8, 0x3D, 0xC1, 0x83, 0x83, 0xF0}  // E8:3D:C1:83:83:F0
+
+// The receiver this remote talks to.
+#define RX_MAC_BYTES  RX_MAC_RECEIVER_1
 
 // ---------------- config-mode access ----------------
 #define HZ_CONFIG_PIN       "4817"  // 4-digit PIN to send the receiver into config mode
